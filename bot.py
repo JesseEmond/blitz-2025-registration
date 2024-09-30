@@ -22,7 +22,17 @@ class Bot:
             if threat.style not in KNOWN_STYLES:
                 raise NotImplementedError(threat.style)
 
-        options = [d for d in Direction if game_message.can_go(d)]
+        options = []
+        for direction in Direction:
+            # Don't walk into walls
+            if not game_message.can_go(direction):
+                continue
+            # Don't walk on threats
+            threat_positions = [t.position for t in game_message.threats]
+            next_pos = game_message.yourCharacter.position.offset(direction)
+            if next_pos in threat_positions:
+                continue
+            options.append(direction)
         actions = []
         if options:
             direction = random.choice(options)
