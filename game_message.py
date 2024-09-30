@@ -24,7 +24,7 @@ class Constants:
 
 
 @dataclass_json
-@dataclass
+@dataclass(frozen=True)
 class Position:
     x: int
     y: int
