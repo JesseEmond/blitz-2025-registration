@@ -12,6 +12,12 @@ from bot import Bot
 from game_message import TeamGameState
 
 
+def on_end(game: TeamGameState):
+    """Callback when the game is over with the last game state seen."""
+    last_tick = game.tick + 1
+    print(f"Final score: {last_tick * 5}")
+
+
 async def run():
     uri = "ws://127.0.0.1:8765"
 
@@ -30,12 +36,14 @@ async def run():
 
 
 async def game_loop(websocket: websockets.WebSocketServerProtocol, bot: Bot):
+    last_game_message = None
     while True:
         try:
             message = await websocket.recv()
         except websockets.exceptions.ConnectionClosed:
             # Connection is closed, the game is probably over
             print("Websocket was closed.")
+            on_end(last_game_message)
             break
 
         game_message: TeamGameState = TeamGameState.from_json(message)
@@ -62,6 +70,7 @@ async def game_loop(websocket: websockets.WebSocketServerProtocol, bot: Bot):
         print(json.dumps(payload))
 
         await websocket.send(json.dumps(payload))
+        last_game_message = game_message
 
 
 if __name__ == "__main__":
