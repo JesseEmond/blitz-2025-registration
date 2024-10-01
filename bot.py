@@ -1,9 +1,10 @@
 from game_message import *
 
+# TODO: What do the styles/personalities mean?
 
 # Seen in games. Crash if we've never seen a style so that we know.
 # TODO: Stop crashing on new types, for safety
-KNOWN_PERSONALITIES = ["lazy"]
+KNOWN_PERSONALITIES = ["lazy", "tease"]
 KNOWN_STYLES = ["bull", "hawk", "shark", "goldfish", "deer", "hawk", "owl"]
 
 
@@ -57,8 +58,26 @@ class Bot:
                 best_option = direction
                 print(f"Option {best_option} has safety {safety}, instead of {best_option_safety}!")
                 best_option_safety = safety
+        # If we're immediately safe, try to go to safest point on the map
+        walk_to = None
+        my_pos = game_message.yourCharacter.position
+        if best_option and tile_safety[my_pos.x][my_pos.y] > 2:
+            best_dist = 0
+            for y in range(game_message.map.height):
+                for x in range(game_message.map.width):
+                    safety = tile_safety[x][y]
+                    dist = game_message.yourCharacter.distances[x][y]
+                    if dist is not None and safety >= best_option_safety:
+                        if best_option_safety == safety and dist >= best_dist:
+                            continue
+                        print(f"Option {safety} (dist {dist}) is better than {best_option_safety}")
+                        best_option_safety = safety
+                        best_dist = dist
+                        walk_to = Position(x, y)
         actions = []
-        if best_option is not None:
+        if walk_to is not None:
+            actions.append(MoveToAction(walk_to))
+        elif best_option is not None:
             actions.append(direction_to_action(best_option))
 
         # You can clearly do better than the random actions above! Have fun!
