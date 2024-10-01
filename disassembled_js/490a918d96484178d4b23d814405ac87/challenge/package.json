@@ -1,0 +1,55 @@
+{
+    "name": "@blitz/challenge",
+    "private": true,
+    "version": "1.0.0",
+    "description": "Blitz2025 Game Server",
+    "module": "dist/index.js",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "author": "Coveo",
+    "license": "MIT",
+    "exports": {
+        ".": {
+            "require": "./dist/index.js",
+            "import": "./dist/index.js",
+            "types": "./dist/index.d.ts"
+        }
+    },
+    "scripts": {
+        "test": "jest --collect-coverage",
+        "test-watch": "jest --watchAll --collect-coverage",
+        "test-watch-specific": "jest --collect-coverage --watch",
+        "build": "pnpm run generate-interfaces && tsc",
+        "generate-interfaces": "node generate-interfaces.js",
+        "start": "node dist/index.js",
+        "dev": "tsc --watch",
+        "asap": "npm run dev -- --delayBetweenTicksMs 0",
+        "test-client": "ts-node-dev src/client.js"
+    },
+    "dependencies": {
+        "@blitz/engine": "workspace:*",
+        "pngjs": "^7.0.0",
+        "seedrandom": "^3.0.5",
+        "uuid": "^9.0.1",
+        "winston": "^3.3.3"
+    },
+    "devDependencies": {
+        "@blitz/blitzschema": "workspace:*",
+        "@jest/globals": "^29.6.4",
+        "@types/jest": "^29.5.4",
+        "@types/node": "^18.6.1",
+        "@types/pngjs": "^6.0.3",
+        "@types/seedrandom": "^3.0.5",
+        "@types/uuid": "^9.0.3",
+        "@typescript-eslint/eslint-plugin": "^4.28.3",
+        "@typescript-eslint/parser": "^4.28.3",
+        "dotenv": "^8.2.0",
+        "eslint": "^7.30.0",
+        "eslint-plugin-react": "^7.24.0",
+        "jest": "^29.6.4",
+        "mkdirp": "^3.0.1",
+        "ts-jest": "^29.1.1",
+        "ts-node-dev": "^2.0.0",
+        "typescript": "^5.5.3"
+    }
+}

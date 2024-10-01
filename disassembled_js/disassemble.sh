@@ -70,14 +70,17 @@ echo "Files unpacked."
 echo
 echo "Copying files of interest to ./${challenge_md5}"
 mkdir -p "./${challenge_md5}/challenge"
-cp "/tmp/${challenge_md5}/snapshot/blitz-2024/challenge/package.json" "./${challenge_md5}/challenge/"
-cp "/tmp/${challenge_md5}/snapshot/blitz-2024/challenge/dist/"*.js "./${challenge_md5}/challenge/"
+cp "/tmp/${challenge_md5}/snapshot/blitz-2025/challenge/package.json" "./${challenge_md5}/challenge/"
+cp -r "/tmp/${challenge_md5}/snapshot/blitz-2025/challenge/dist/"* "./${challenge_md5}/challenge/"
 mkdir -p "./${challenge_md5}/challenge-launcher"
-cp "/tmp/${challenge_md5}/snapshot/blitz-2024/challenge-launcher/dist/"*.js "./${challenge_md5}/challenge-launcher/"
+cp -r "/tmp/${challenge_md5}/snapshot/blitz-2025/challenge-launcher/dist/"* "./${challenge_md5}/challenge-launcher/"
 echo "Files copied."
 
 echo
 echo "Disassembling unpacked files..."
 disassemble_js_files "./${challenge_md5}/challenge/"
+for subdir in "./${challenge_md5}/challenge/"*/; do
+    disassemble_js_files "${subdir}"
+done
 disassemble_js_files "./${challenge_md5}/challenge-launcher/"
 echo "Disassembly done."

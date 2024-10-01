@@ -4,4 +4,4 @@ Following approach from https://github.com/JesseEmond/blitz-2024-registration,
 see for details.
 
 Binaries (with dates when they were checked):
-- Oct 1st: `TODO`
+- Oct 1st: `490a918d96484178d4b23d814405ac87`
