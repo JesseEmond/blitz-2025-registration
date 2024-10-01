@@ -20,7 +20,7 @@ class Bot:
             self.prev_threats = threats
         self.prev_threats = threats
         actions = []
-        move = search.next_move(game_message, budget_ms=750)
+        move = search.next_move(game_message, budget_ms=250)
         if move is not None:
             actions.append(direction_to_action(move))
         return actions

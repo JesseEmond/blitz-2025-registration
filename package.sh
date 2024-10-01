@@ -1,2 +1,2 @@
 #!/bin/sh
-zip devnull.zip *.py requirements.txt
+rm devnull.zip; zip devnull.zip *.py requirements.txt
