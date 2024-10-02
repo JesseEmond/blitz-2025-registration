@@ -82,6 +82,7 @@ struct NodeStats {
     walkable_tiles: usize,
 }
 
+#[derive(Clone)]
 struct SearchNode {
     pos: Pos,
     threats: Vec<Threat>,
@@ -153,25 +154,48 @@ impl SearchNode {
 pub struct Bot {
 }
 
+fn move_score(root: &SearchNode, m: &Option<Move>, grid: &Grid, depth: usize) -> f32 {
+    if depth == 0 {
+        let sample_size = 10;
+        let mut score_sum = 0.0;
+        for _ in 0..sample_size {
+            let mut node = root.clone();
+            node.apply_move(m, &grid);
+            node.simulate_enemies(&grid);
+            let stats = node.compute_stats(&grid);
+            let score = stats.safety + stats.walkable_tiles;
+            score_sum += score as f32;
+        }
+        score_sum / (sample_size as f32)
+    } else {
+        let mut score_sum = 0.0;
+        let sample_size = 10;
+        for _ in 0..sample_size {
+            let mut sample_sum = 0.0;
+            let mut node = root.clone();
+            node.apply_move(m, &grid);
+            node.simulate_enemies(&grid);
+            let mut moves: Vec<Option<Move>> = grid.available_moves(&node.pos)
+                .iter().map(|&m| Some(m)).collect();
+            moves.push(None);
+            for m in &moves {
+                sample_sum += move_score(&node, m, &grid, depth - 1);
+            }
+            score_sum += sample_sum / (moves.len() as f32);
+        }
+        score_sum / (sample_size as f32)
+    }
+}
+
 impl Bot {
     pub fn pick_move(&self, game: &Game) -> Option<Move> {
         let mut moves: Vec<Option<Move>> = game.grid.available_moves(&game.pos)
             .iter().map(|&m| Some(m)).collect();
         moves.push(None);
-        // TODO: Look more than 1 move ahead
+        let node = SearchNode::new(game);
         moves.into_iter().max_by_key(|m| {
-            // Gather a sample of stats for this move
-            let samples = 50;
-            let mut score_sum = 0.0;
-            for _ in 0..samples {
-                let mut node = SearchNode::new(game);
-                node.apply_move(m, &game.grid);
-                node.simulate_enemies(&game.grid);
-                let stats = node.compute_stats(&game.grid);
-                let score = stats.safety + stats.walkable_tiles;
-                score_sum += score as f32;
-            }
-            OrderedFloat(score_sum)
+            let depth = 2;
+            OrderedFloat(move_score(&node, m, &game.grid, depth))
         }).unwrap()
     }
 }
