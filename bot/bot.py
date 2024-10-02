@@ -1,6 +1,8 @@
 from game_message import *
 import search
 
+import devnull_bot
+
 # TODO: Threats only move every 5 ticks?
 # TODO: What do the styles/personalities mean?
 
@@ -12,6 +14,7 @@ import search
 class Bot:
     def __init__(self):
         print("Initializing your super mega duper bot")
+        devnull_bot.hello_world()
         self.prev_threats = None
 
     def get_next_move(self, game_message: TeamGameState):

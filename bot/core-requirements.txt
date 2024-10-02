@@ -1,0 +1,4 @@
+# Requirements that are needed for both devs and on-server.
+websockets==10.4
+dataclasses-json==0.6.7
+mcts

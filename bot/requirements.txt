@@ -1,3 +1,5 @@
-websockets==10.4
-dataclasses-json==0.6.7
-mcts
+# Note! This is the file that runs on Blitz servers, not what devs run.
+# Notably, it expects a whl file for our Rust binary to already be built.
+# Devs: see dev-requirements.txt
+-r core-requirements.txt
+./target/wheels/devnull_bot-0.1.0-cp310-cp310-manylinux_2_34_x86_64.whl
