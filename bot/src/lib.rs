@@ -1,4 +1,12 @@
+/// Boilerplate for Python code calling into this library.
+/// A lot of duplication here, do this so that other parts of the Rust code can
+/// ignore that it can run inside Python.
+
+pub mod simple_bot;
+
 use pyo3::prelude::*;
+
+use crate::simple_bot::{Bot, Game, Grid, Move, Pos, Threat};
 
 #[pyclass]
 pub enum Action {
@@ -87,7 +95,27 @@ impl GameState {
 
 #[pyfunction]
 fn pick_action(game: &GameState) -> PyResult<Action> {
-    Ok(Action::Up)
+    let bot = Bot {};
+    let bot_game = Game {
+        pos: Pos { x: game.position.x as i16, y: game.position.y as i16 },
+        grid: Grid {
+            width: game.map.width as u8,
+            height: game.map.height as u8,
+            tiles: game.map.tiles.clone(),
+        },
+        threats: game.threats.iter().map(
+            |t| Threat { pos: Pos { x: t.position.x as i16, y: t.position.y as i16 } })
+            .collect(),
+    };
+    Ok(match bot.pick_move(&bot_game) {
+        Some(bot_move) => match bot_move {
+            Move::Up => Action::Up,
+            Move::Down => Action::Down,
+            Move::Left => Action::Left,
+            Move::Right => Action::Right,
+        },
+        None => Action::Idle,
+    })
 }
 
 #[pymodule]
