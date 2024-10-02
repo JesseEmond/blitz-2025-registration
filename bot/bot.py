@@ -1,3 +1,5 @@
+import time
+
 from game_message import *
 import devnull_bot
 
@@ -52,10 +54,13 @@ class Bot:
         print("Initializing your super mega duper bot")
 
     def get_next_move(self, game_message: TeamGameState):
+        start_time = time.time()
         actions = []
         state = create_rust_game_state(game_message)
         action = devnull_bot.pick_action(state)
         direction = rust_action_to_action(action)
         if direction is not None:
             actions.append(direction_to_action(direction))
+        end_time = time.time()
+        print(f"Turn took {(end_time - start_time)*1000:.2f}ms")
         return actions

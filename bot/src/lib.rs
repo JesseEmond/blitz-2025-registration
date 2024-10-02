@@ -2,6 +2,8 @@
 /// A lot of duplication here, do this so that other parts of the Rust code can
 /// ignore that it can run inside Python.
 
+extern crate ordered_float;
+
 pub mod simple_bot;
 
 use pyo3::prelude::*;

@@ -1,3 +1,6 @@
+use std::collections::VecDeque;
+
+use ordered_float::OrderedFloat;
 use rand::seq::SliceRandom;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -10,6 +13,7 @@ pub enum Move {
     Right,
 }
 
+#[derive(Copy, Clone)]
 pub struct Pos {
     pub x: i16,
     pub y: i16,
@@ -59,6 +63,7 @@ impl Grid {
     }
 }
 
+#[derive(Clone)]
 pub struct Threat {
     pub pos: Pos,
     // TODO: Integrate 'style' here, once we know how to use them.
@@ -70,6 +75,81 @@ pub struct Game {
     pub threats: Vec<Threat>,
 }
 
+struct NodeStats {
+    /// How many tiles until we hit an enemy
+    safety: usize,
+    /// How many tiles does our connected component contain?
+    walkable_tiles: usize,
+}
+
+struct SearchNode {
+    pos: Pos,
+    threats: Vec<Threat>,
+}
+
+impl SearchNode {
+    fn new(game: &Game) -> SearchNode {
+        SearchNode {
+            pos: game.pos,
+            threats: game.threats.clone(),
+        }
+    }
+
+    fn apply_move(&mut self, move_: &Option<Move>, grid: &Grid) {
+        if let &Some(m) = move_ {
+            self.pos = self.pos.moved(m);
+            assert!(grid.is_empty(&self.pos));
+        }
+    }
+    
+    fn simulate_enemies(&mut self, grid: &Grid) {
+        for threat in self.threats.iter_mut() {
+            let mut moves: Vec<Option<Move>> = grid.available_moves(&threat.pos)
+                .iter().map(|&m| Some(m)).collect();
+            moves.push(None);
+            if let Some(m) = moves.choose(&mut rand::thread_rng()).unwrap() {
+                threat.pos = threat.pos.moved(*m);
+            }
+        }
+    }
+
+    fn compute_stats(&self, grid: &Grid) -> NodeStats {
+        let mut safety = None;
+        let mut walkable = 0;
+        let mut tiles = vec![vec![0i16; grid.height as usize]; grid.width as usize];
+        for t in self.threats.iter() {
+            tiles[t.pos.x as usize][t.pos.y as usize] = -1;
+        }
+        // Already an unsafe tile! No need to explore more.
+        if tiles[self.pos.x as usize][self.pos.y as usize] == -1 {
+            return NodeStats { safety: 0, walkable_tiles: 0 };
+        }
+        let mut queue = VecDeque::new();
+        queue.push_back(self.pos);
+        while !queue.is_empty() {
+            let pos = queue.pop_front().unwrap();
+            walkable += 1;
+            let score = tiles[pos.x as usize][pos.y as usize];
+            let next_score = score + 1;
+            for m in grid.available_moves(&pos) {
+                let next_pos = pos.moved(m);
+                let current_score = tiles[next_pos.x as usize][next_pos.y as usize];
+                if current_score == -1 && safety.is_none() {
+                    safety = Some(next_score);
+                }
+                if current_score == 0 {
+                    tiles[next_pos.x as usize][next_pos.y as usize] = next_score;
+                    queue.push_back(next_pos);
+                }
+            }
+        }
+        NodeStats {
+            safety: safety.unwrap() as usize,
+            walkable_tiles: walkable,
+        }
+    }
+}
+
 pub struct Bot {
 }
 
@@ -78,6 +158,20 @@ impl Bot {
         let mut moves: Vec<Option<Move>> = game.grid.available_moves(&game.pos)
             .iter().map(|&m| Some(m)).collect();
         moves.push(None);
-        moves.choose(&mut rand::thread_rng()).cloned().unwrap()
+        // TODO: Look more than 1 move ahead
+        moves.into_iter().max_by_key(|m| {
+            // Gather a sample of stats for this move
+            let samples = 50;
+            let mut score_sum = 0.0;
+            for _ in 0..samples {
+                let mut node = SearchNode::new(game);
+                node.apply_move(m, &game.grid);
+                node.simulate_enemies(&game.grid);
+                let stats = node.compute_stats(&game.grid);
+                let score = stats.safety + stats.walkable_tiles;
+                score_sum += score as f32;
+            }
+            OrderedFloat(score_sum)
+        }).unwrap()
     }
 }
