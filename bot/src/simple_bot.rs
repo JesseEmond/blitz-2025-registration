@@ -5,7 +5,7 @@ use rand::seq::SliceRandom;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-#[derive(EnumIter, Copy, Clone)]
+#[derive(EnumIter, Copy, Clone, Debug)]
 pub enum Move {
     Up,
     Down,
@@ -13,7 +13,7 @@ pub enum Move {
     Right,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub struct Pos {
     pub x: i16,
     pub y: i16,
@@ -81,6 +81,7 @@ struct NodeStats {
     safety: usize,
     /// How many tiles does our connected component contain?
     walkable_tiles: usize,
+    dead: bool,
 }
 
 #[derive(Clone)]
@@ -88,6 +89,7 @@ struct SearchNode {
     tick: usize,
     pos: Pos,
     threats: Vec<Threat>,
+    dead: bool,
 }
 
 impl SearchNode {
@@ -96,18 +98,24 @@ impl SearchNode {
             tick: game.tick,
             pos: game.pos,
             threats: game.threats.clone(),
+            dead: false,
         }
     }
 
     fn apply_move(&mut self, move_: &Option<Move>, grid: &Grid) {
+        if self.dead { return; }
         if let &Some(m) = move_ {
             self.pos = self.pos.moved(m);
             assert!(grid.is_empty(&self.pos));
+            if self.threats.iter().any(|t| t.pos == self.pos) {
+                self.dead = true;
+            }
         }
         self.tick += 1;
     }
     
     fn simulate_enemies(&mut self, grid: &Grid) {
+        if self.dead { return; }
         if self.enemies_move() {
             for threat in self.threats.iter_mut() {
                 let mut moves: Vec<Option<Move>> = grid.available_moves(&threat.pos)
@@ -116,6 +124,9 @@ impl SearchNode {
                 // TODO: take into account threat styles
                 if let Some(m) = moves.choose(&mut rand::thread_rng()).unwrap() {
                     threat.pos = threat.pos.moved(*m);
+                    if threat.pos == self.pos {
+                        self.dead = true;
+                    }
                 }
             }
         }
@@ -134,7 +145,8 @@ impl SearchNode {
         }
         // Already an unsafe tile! No need to explore more.
         if tiles[self.pos.x as usize][self.pos.y as usize] == -1 {
-            return NodeStats { safety: 0, walkable_tiles: 0 };
+            assert!(self.dead);
+            return NodeStats { safety: 0, walkable_tiles: 0, dead: true };
         }
         let mut queue = VecDeque::new();
         queue.push_back(self.pos);
@@ -158,6 +170,7 @@ impl SearchNode {
         NodeStats {
             safety: safety.unwrap() as usize,
             walkable_tiles: walkable,
+            dead: false,
         }
     }
 }
@@ -175,8 +188,11 @@ fn move_score(root: &SearchNode, m: &Option<Move>, grid: &Grid, depth: usize) ->
             node.apply_move(m, &grid);
             node.simulate_enemies(&grid);
             let stats = node.compute_stats(&grid);
-            let score = stats.safety + stats.walkable_tiles;
-            score_sum += score as f32;
+            let mut score: f32 = (stats.safety + stats.walkable_tiles) as f32;
+            if stats.dead {
+                score -= 500.0;
+            }
+            score_sum += score;
         }
         score_sum / (sample_size as f32)
     } else {
@@ -208,7 +224,9 @@ impl Bot {
         let node = SearchNode::new(game);
         moves.into_iter().max_by_key(|m| {
             let depth = 4;
-            OrderedFloat(move_score(&node, m, &game.grid, depth))
+            let score = move_score(&node, m, &game.grid, depth);
+            println!("Option {m:?} has score: {score}");
+            OrderedFloat(score)
         }).unwrap()
     }
 }
