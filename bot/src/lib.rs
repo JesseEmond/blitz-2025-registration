@@ -99,6 +99,7 @@ impl GameState {
 fn pick_action(game: &GameState) -> PyResult<Action> {
     let bot = Bot {};
     let bot_game = Game {
+        tick: game.tick as usize,
         pos: Pos { x: game.position.x as i16, y: game.position.y as i16 },
         grid: Grid {
             width: game.map.width as u8,

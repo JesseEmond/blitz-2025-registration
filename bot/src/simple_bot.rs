@@ -70,6 +70,7 @@ pub struct Threat {
 }
 
 pub struct Game {
+    pub tick: usize,
     pub pos: Pos,
     pub grid: Grid,
     pub threats: Vec<Threat>,
@@ -84,6 +85,7 @@ struct NodeStats {
 
 #[derive(Clone)]
 struct SearchNode {
+    tick: usize,
     pos: Pos,
     threats: Vec<Threat>,
 }
@@ -91,6 +93,7 @@ struct SearchNode {
 impl SearchNode {
     fn new(game: &Game) -> SearchNode {
         SearchNode {
+            tick: game.tick,
             pos: game.pos,
             threats: game.threats.clone(),
         }
@@ -101,17 +104,25 @@ impl SearchNode {
             self.pos = self.pos.moved(m);
             assert!(grid.is_empty(&self.pos));
         }
+        self.tick += 1;
     }
     
     fn simulate_enemies(&mut self, grid: &Grid) {
-        for threat in self.threats.iter_mut() {
-            let mut moves: Vec<Option<Move>> = grid.available_moves(&threat.pos)
-                .iter().map(|&m| Some(m)).collect();
-            moves.push(None);
-            if let Some(m) = moves.choose(&mut rand::thread_rng()).unwrap() {
-                threat.pos = threat.pos.moved(*m);
+        if self.enemies_move() {
+            for threat in self.threats.iter_mut() {
+                let mut moves: Vec<Option<Move>> = grid.available_moves(&threat.pos)
+                    .iter().map(|&m| Some(m)).collect();
+                moves.push(None);
+                // TODO: take into account threat styles
+                if let Some(m) = moves.choose(&mut rand::thread_rng()).unwrap() {
+                    threat.pos = threat.pos.moved(*m);
+                }
             }
         }
+    }
+
+    fn enemies_move(&self) -> bool {
+        (self.tick - 1) % 5 == 0 && self.tick > 1
     }
 
     fn compute_stats(&self, grid: &Grid) -> NodeStats {
@@ -156,7 +167,8 @@ pub struct Bot {
 
 fn move_score(root: &SearchNode, m: &Option<Move>, grid: &Grid, depth: usize) -> f32 {
     if depth == 0 {
-        let sample_size = 10;
+        // Only bother sampling if enemies are moving (random)
+        let sample_size = if root.enemies_move() { 10 } else { 1 };
         let mut score_sum = 0.0;
         for _ in 0..sample_size {
             let mut node = root.clone();
@@ -169,7 +181,8 @@ fn move_score(root: &SearchNode, m: &Option<Move>, grid: &Grid, depth: usize) ->
         score_sum / (sample_size as f32)
     } else {
         let mut score_sum = 0.0;
-        let sample_size = 10;
+        // Only bother sampling if enemies are moving (random)
+        let sample_size = if root.enemies_move() { 10 } else { 1 };
         for _ in 0..sample_size {
             let mut sample_sum = 0.0;
             let mut node = root.clone();
@@ -194,7 +207,7 @@ impl Bot {
         moves.push(None);
         let node = SearchNode::new(game);
         moves.into_iter().max_by_key(|m| {
-            let depth = 2;
+            let depth = 4;
             OrderedFloat(move_score(&node, m, &game.grid, depth))
         }).unwrap()
     }
