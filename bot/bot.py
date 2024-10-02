@@ -1,14 +1,11 @@
 from game_message import *
-import search
-
 import devnull_bot
 
-# TODO: Threats only move every 5 ticks?
 # TODO: What do the styles/personalities mean?
-
-# Seen in games. Crash if we've never seen a style so that we know.
+# Seen in games.
 # KNOWN_PERSONALITIES = ["lazy", "tease"]
 # KNOWN_STYLES = ["bull", "hawk", "shark", "goldfish", "deer", "hawk", "owl"]
+
 
 def create_rust_position(position: Position) -> devnull_bot.GamePosition:
     return devnull_bot.GamePosition(x=position.x, y=position.y)
@@ -34,20 +31,31 @@ def create_rust_game_state(game: TeamGameState) -> devnull_bot.GameState:
         threats=[create_rust_threat(t) for t in game.threats],
         map=create_rust_map(game.map))
 
+
+def rust_action_to_action(action: devnull_bot.Action) -> Direction | None:
+    if action == devnull_bot.Action.Up:
+        return Direction.UP
+    elif action == devnull_bot.Action.Down:
+        return Direction.DOWN
+    elif action == devnull_bot.Action.Right:
+        return Direction.RIGHT
+    elif action == devnull_bot.Action.Left:
+        return Direction.LEFT
+    elif action == devnull_bot.Action.Idle:
+        return None
+    else:
+        raise NotImplementedError(action)
+
+
 class Bot:
     def __init__(self):
         print("Initializing your super mega duper bot")
-        devnull_bot.hello_world()
-        self.prev_threats = None
 
     def get_next_move(self, game_message: TeamGameState):
-        create_rust_game_state(game_message)
-        threats = [t.position for t in game_message.threats]
-        if self.prev_threats is None:
-            self.prev_threats = threats
-        self.prev_threats = threats
         actions = []
-        move = search.next_move(game_message, budget_ms=250)
-        if move is not None:
-            actions.append(direction_to_action(move))
+        state = create_rust_game_state(game_message)
+        action = devnull_bot.pick_action(state)
+        direction = rust_action_to_action(action)
+        if direction is not None:
+            actions.append(direction_to_action(direction))
         return actions

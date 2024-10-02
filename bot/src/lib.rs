@@ -1,6 +1,16 @@
 use pyo3::prelude::*;
 
 #[pyclass]
+pub enum Action {
+    /// Send no action -- do not move.
+    Idle,
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+#[pyclass]
 #[derive(Clone)]
 pub struct GamePosition {
     #[pyo3(get, set)]
@@ -76,17 +86,17 @@ impl GameState {
 }
 
 #[pyfunction]
-fn hello_world() -> PyResult<u128> {
-    println!("Hello world, from Rust!");
-    Ok(42)
+fn pick_action(game: &GameState) -> PyResult<Action> {
+    Ok(Action::Up)
 }
 
 #[pymodule]
 fn devnull_bot(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(hello_world, m)?)?;
+    m.add_function(wrap_pyfunction!(pick_action, m)?)?;
     m.add_class::<GamePosition>()?;
     m.add_class::<GameThreat>()?;
     m.add_class::<GameMap>()?;
     m.add_class::<GameState>()?;
+    m.add_class::<Action>()?;
     Ok(())
 }
