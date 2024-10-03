@@ -2,13 +2,13 @@
 /// A lot of duplication here, do this so that other parts of the Rust code can
 /// ignore that it can run inside Python.
 
+pub mod search;
 pub mod simulation;
-pub mod simple_bot;
 
 use pyo3::prelude::*;
 
+use crate::search::Bot;
 use crate::simulation::{Game, Grid, Move, Pos, Threat};
-use crate::simple_bot::Bot;
 
 #[pyclass]
 pub enum Action {
