@@ -199,6 +199,7 @@ impl Threat {
 pub struct Game {
     pub tick: usize,
     pub pos: Pos,
+    pub spawn_pos: Pos,
     pub grid: Grid,
     pub threats: Vec<Threat>,
     pub alive: bool,
@@ -376,6 +377,7 @@ mod tests {
             ]),
             alive: true,
             pos: Pos { x: 1, y: 1 },
+            spawn_pos: Pos { x: 1, y: 1 },
             tick: 1,
             threats,
         }

@@ -50,6 +50,12 @@ pub struct GamePosition {
     pub y: i32,
 }
 
+impl GamePosition {
+    fn to_pos(&self) -> Pos {
+        Pos { x: self.x as i16, y: self.y as i16 }
+    }
+}
+
 #[pymethods]
 impl GamePosition {
     #[new]
@@ -105,6 +111,8 @@ pub struct GameState {
     #[pyo3(get, set)]
     pub position: GamePosition,
     #[pyo3(get, set)]
+    pub spawn_position: GamePosition,
+    #[pyo3(get, set)]
     pub threats: Vec<GameThreat>,
     #[pyo3(get, set)]
     pub map: GameMap,
@@ -115,9 +123,9 @@ pub struct GameState {
 #[pymethods]
 impl GameState {
     #[new]
-    pub fn new(tick: u32, position: GamePosition, threats: Vec<GameThreat>,
-               map: GameMap, alive: bool) -> GameState {
-        GameState { tick, position, threats, map, alive }
+    pub fn new(tick: u32, position: GamePosition, spawn_position: GamePosition,
+               threats: Vec<GameThreat>, map: GameMap, alive: bool) -> GameState {
+        GameState { tick, position, spawn_position, threats, map, alive }
     }
 }
 
@@ -125,15 +133,15 @@ impl GameState {
     fn to_game(&self) -> Game {
         Game {
             tick: self.tick as usize,
-            pos: Pos { x: self.position.x as i16, y: self.position.y as i16 },
+            pos: self.position.to_pos(),
+            spawn_pos: self.spawn_position.to_pos(),
             grid: Grid {
                 width: self.map.width as u8,
                 height: self.map.height as u8,
                 tiles: self.map.tiles.clone(),
             },
             threats: self.threats.iter().map(
-                |t| Threat::new(Pos { x: t.position.x as i16, y: t.position.y as i16 },
-                                from_style_name(&t.style),
+                |t| Threat::new(t.position.to_pos(), from_style_name(&t.style),
                                 t.direction.to_move()))
                 .collect(),
             alive: self.alive,

@@ -26,6 +26,7 @@ def create_rust_game_state(game: TeamGameState) -> devnull_bot.GameState:
     return devnull_bot.GameState(
         tick=game.tick,
         position=create_rust_position(game.yourCharacter.position),
+        spawn_position=create_rust_position(game.yourCharacter.spawnPoint),
         threats=[create_rust_threat(t) for t in game.threats],
         map=create_rust_map(game.map),
         alive=game.yourCharacter.alive)
