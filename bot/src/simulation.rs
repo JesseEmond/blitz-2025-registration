@@ -29,7 +29,7 @@ static IS_MOVE_TICK: Lazy<Vec<bool>> = Lazy::new(|| {
 
 // Styles map to internal names in the JS here:
 // https://github.com/JesseEmond/blitz-2025-registration/blob/7afcfb849b990caa69cee0f83ae96aae6f49740f/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L452C80-L452C88
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(EnumIter, Copy, Clone, Debug, PartialEq)]
 pub enum Style {
     /// Aka "girouette"
     Goldfish,
@@ -104,7 +104,7 @@ impl Grid {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Threat {
     pub pos: Pos,
     /// Direction the threat is facing.
@@ -118,6 +118,14 @@ impl Threat {
         let mut t = Threat { pos, style, dir, seed: 0 };
         t._next_rand();  // The initial direction was generated via randomness
         t
+    }
+
+    fn can_predict(style: Style) -> bool {
+        // TODO: Remove this fn once all are supported!
+        match style {
+            Style::Goldfish | Style::Bull => true,
+            _ => false,
+        }
     }
 
     /// Returns whether we know how to simulate this threat.
@@ -147,8 +155,11 @@ impl Threat {
             _ => None,  // TODO: implement other styles
         };
         if let Some(m) = next_move {
+            assert!(Threat::can_predict(self.style));
             self.pos = self.pos.moved(m);
             self.dir = m;
+        } else {
+            assert!(!Threat::can_predict(self.style));
         }
         // TODO: remove return once we have 100% predictions
         !next_move.is_none()
@@ -277,28 +288,17 @@ impl State {
     /// Update our state based on what the server sent back.
     pub fn update_observed_state(&mut self, game: &Game) {
         // TODO: Replace with only asserts once we perfectly predict the game
-        assert!(self.tick == game.tick, "tick predicted={} actual={}",
-                self.tick, game.tick);
-        assert!(self.pos == game.pos, "pos predicted={:?} actual={:?}",
-                self.pos, game.pos);
+        assert_eq!(self.tick, game.tick, "tick");
+        assert_eq!(self.pos, game.pos, "pos");
         if self.game_over != !game.alive {
             self.game_over = !game.alive;
             println!("[TODO] Learn to predict all threats");
         }
         self.threats.iter_mut().zip(game.threats.iter()).for_each(|(threat, actual)| {
-            assert!(threat.style == actual.style);
-            // TODO: Should eventually all be true.
-            let can_predict = match threat.style {
-                Style::Goldfish | Style::Bull => true,
-                _ => false,
-            };
-            if can_predict {
-                assert!(threat.dir == actual.dir,
-                        "{:?} dir predicted={:?} actual={:?}", threat.style,
-                        threat.dir, actual.dir);
-                assert!(threat.pos == actual.pos,
-                        "{:?} pos predicted={:?} actual={:?}", threat.style,
-                        threat.pos, actual.pos);
+            assert_eq!(threat.style, actual.style);
+            if Threat::can_predict(threat.style) {
+                assert_eq!(threat.dir, actual.dir, "{:?} dir", threat.style);
+                assert_eq!(threat.pos, actual.pos, "{:?} pos", threat.style);
             } else {
                 println!("[TODO] Learn to predict {:?}", threat.style);
                 threat.pos = actual.pos;
@@ -333,3 +333,63 @@ impl State {
 
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper to make 'tiles' from a [y][x] structure (matches visually) of
+    /// '#'s and ' 's.
+    fn make_grid(rows: Vec<&str>) -> Grid {
+        let width = if rows.is_empty() { 0 } else { rows[0].len() };
+        let height = rows.len();
+        let mut tiles = vec![vec![false; height]; width];
+        for x in 0..width {
+            for y in 0..height {
+                let c = rows[y].as_bytes()[x];
+                assert!(c == b' ' || c == b'#',
+                        "make_grid expects rows with spaces and #s: '{}'", c);
+                tiles[x][y] = c == b'#';
+            }
+        }
+        Grid { tiles, width: width as u8, height: height as u8 }
+    }
+    
+
+    fn make_test_game() -> Game {
+        let threats = Style::iter().filter(|&s| Threat::can_predict(s))
+            .map(|s| Threat::new(Pos { x: 1, y: 4 }, s, Move::Right))
+            .collect();
+        Game {
+            grid: make_grid(vec![
+                "####",
+                "#  #",
+                "#  #",
+                "####",
+                "#  #",
+                "#  #",
+                "####",
+            ]),
+            alive: true,
+            pos: Pos { x: 1, y: 1 },
+            tick: 1,
+            threats,
+        }
+    }
+
+    #[test]
+    fn test_apply_matches_simulate() {
+        let mut simulated = State::new(make_test_game());
+        let mut applied = simulated.clone();
+        for _ in 0..1500 {
+            let moves = simulated.generate_moves();
+            let our_move = *moves.iter().next().unwrap();
+            simulated.simulate_tick(our_move);
+            applied.apply(our_move);
+            // All predictable threats, should have moved to next turn.
+            assert!(applied.is_player_turn());
+            assert_eq!(simulated.tick, applied.tick);
+            assert_eq!(simulated.pos, applied.pos);
+            assert_eq!(simulated.threats, applied.threats);
+        }
+    }
+}
