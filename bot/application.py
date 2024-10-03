@@ -27,15 +27,17 @@ async def run():
             await websocket.send(
                 json.dumps({"type": "REGISTER", "token": os.environ["TOKEN"]})
             )
+            local = False
         else:
             await websocket.send(
                 json.dumps({"type": "REGISTER", "teamName": "MyPythonicBot"})
             )
+            local = True
 
-        await game_loop(websocket=websocket, bot=bot)
+        await game_loop(websocket=websocket, bot=bot, local=local)
 
 
-async def game_loop(websocket: websockets.WebSocketServerProtocol, bot: Bot):
+async def game_loop(websocket: websockets.WebSocketServerProtocol, bot: Bot, local: bool):
     last_game_message = None
     while True:
         try:
@@ -60,6 +62,9 @@ async def game_loop(websocket: websockets.WebSocketServerProtocol, bot: Bot):
         except Exception:
             print("Exception while getting next moves:")
             print(traceback.format_exc())
+            if local:
+                raise  # Let it crash -- easier debugging
+
 
         payload = {
             "type": "COMMAND",

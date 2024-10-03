@@ -93,7 +93,7 @@ impl Threat {
         t
     }
 
-    fn simulate(&mut self, tick: usize, player: &Pos, grid: &Grid) {
+    fn simulate(&mut self, tick: usize, _player: &Pos, grid: &Grid) {
         if tick % Self::move_every_n_ticks(tick) != 0 {
             return;
         }
@@ -104,12 +104,11 @@ impl Threat {
                 let directions = self.get_possible_directions(grid);
                 let o = self._next_rand() * directions.len() as f64;
                 let idx = o.floor();
-                let pos = self.pos;
                 self.pos = self.pos.moved(directions[idx as usize]);
             },
             _ => ()  // TODO: implement other styles
         }
-        // TODO: remove once confidence in preditions
+        // TODO: remove once confident in preditions
         println!("{:?} will move from {:?} to {:?}", self.style, prev_pos, self.pos);
     }
 
