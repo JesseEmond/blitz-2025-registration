@@ -1,6 +1,3 @@
-use std::collections::VecDeque;
-
-use ordered_float::OrderedFloat;
 use rand::seq::SliceRandom;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -13,7 +10,7 @@ pub enum Move {
     Right,
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Pos {
     pub x: i16,
     pub y: i16,
@@ -76,157 +73,174 @@ pub struct Game {
     pub threats: Vec<Threat>,
 }
 
-struct NodeStats {
-    /// How many tiles until we hit an enemy
-    safety: usize,
-    /// How many tiles does our connected component contain?
-    walkable_tiles: usize,
-    dead: bool,
-}
-
 #[derive(Clone)]
-struct SearchNode {
+struct State<'a> {
+    grid: &'a Grid,
     tick: usize,
     pos: Pos,
     threats: Vec<Threat>,
-    dead: bool,
+    game_over: bool,
+    turn: usize,  // 0: player turn, 1+: turn for threat idx+1
 }
 
-impl SearchNode {
-    fn new(game: &Game) -> SearchNode {
-        SearchNode {
+impl State<'_> {
+    fn new(game: &Game) -> State {
+        let mut state = State {
+            grid: &game.grid,
             tick: game.tick,
             pos: game.pos,
             threats: game.threats.clone(),
-            dead: false,
+            game_over: false,
+            turn: 0,
+        };
+        state.check_game_over();
+        state
+    }
+
+    fn check_game_over(&mut self) {
+        if !self.game_over {
+            self.game_over = self.threats.iter().any(|t| t.pos == self.pos);
         }
     }
 
-    fn apply_move(&mut self, move_: &Option<Move>, grid: &Grid) {
-        if self.dead { return; }
-        if let &Some(m) = move_ {
-            self.pos = self.pos.moved(m);
-            assert!(grid.is_empty(&self.pos));
-            if self.threats.iter().any(|t| t.pos == self.pos) {
-                self.dead = true;
-            }
-        }
-        self.tick += 1;
+    fn is_turn_end(&self) -> bool {
+        self.turn == 1 + self.threats.len()
+    }
+
+    fn is_player_turn(&self) -> bool {
+        self.turn == 0
     }
     
-    fn simulate_enemies(&mut self, grid: &Grid) {
-        if self.dead { return; }
-        if self.enemies_move() {
-            for threat in self.threats.iter_mut() {
-                let mut moves: Vec<Option<Move>> = grid.available_moves(&threat.pos)
-                    .iter().map(|&m| Some(m)).collect();
-                moves.push(None);
-                // TODO: take into account threat styles
-                if let Some(m) = moves.choose(&mut rand::thread_rng()).unwrap() {
-                    threat.pos = threat.pos.moved(*m);
-                    if threat.pos == self.pos {
-                        self.dead = true;
-                    }
-                }
-            }
-        }
+    fn threat_turn(&self) -> &Threat {
+        assert!(self.turn > 0);
+        &self.threats[self.turn - 1]
     }
 
-    fn enemies_move(&self) -> bool {
-        (self.tick - 1) % 5 == 0 && self.tick > 1
+    fn threat_turn_mut(&mut self) -> &mut Threat {
+        assert!(self.turn > 0);
+        &mut self.threats[self.turn - 1]
     }
 
-    fn compute_stats(&self, grid: &Grid) -> NodeStats {
-        let mut safety = None;
-        let mut walkable = 0;
-        let mut tiles = vec![vec![0i16; grid.height as usize]; grid.width as usize];
-        for t in self.threats.iter() {
-            tiles[t.pos.x as usize][t.pos.y as usize] = -1;
+    fn generate_moves(&self) -> Vec<Option<Move>> {
+        let mut moves = Vec::new();
+        if self.is_player_turn() {
+            moves.extend(self.grid.available_moves(&self.pos).iter().map(|&m| Some(m)));
+        } else {
+            moves.extend(self.grid.available_moves(&self.threat_turn().pos).iter().map(|&m| Some(m)));
         }
-        // Already an unsafe tile! No need to explore more.
-        if tiles[self.pos.x as usize][self.pos.y as usize] == -1 {
-            assert!(self.dead);
-            return NodeStats { safety: 0, walkable_tiles: 0, dead: true };
-        }
-        let mut queue = VecDeque::new();
-        queue.push_back(self.pos);
-        while !queue.is_empty() {
-            let pos = queue.pop_front().unwrap();
-            walkable += 1;
-            let score = tiles[pos.x as usize][pos.y as usize];
-            let next_score = score + 1;
-            for m in grid.available_moves(&pos) {
-                let next_pos = pos.moved(m);
-                let current_score = tiles[next_pos.x as usize][next_pos.y as usize];
-                if current_score == -1 && safety.is_none() {
-                    safety = Some(next_score);
-                }
-                if current_score == 0 {
-                    tiles[next_pos.x as usize][next_pos.y as usize] = next_score;
-                    queue.push_back(next_pos);
-                }
+        moves.push(None);
+        moves
+    }
+
+    fn apply(&mut self, action: Option<Move>) {
+        // TODO: implement undo
+        if let Some(m) = action {
+            if self.is_player_turn() {
+                self.pos = self.pos.moved(m);
+            } else {
+                self.threat_turn_mut().pos = self.threat_turn().pos.moved(m);
             }
+            self.check_game_over();
         }
-        NodeStats {
-            safety: safety.unwrap() as usize,
-            walkable_tiles: walkable,
-            dead: false,
+        self.turn += 1;
+        if self.is_turn_end() {
+            self.tick += 1;
+            self.turn = 0;
         }
+    }
+}
+
+type Score = i32;
+
+trait Evaluator {
+    /// Higher is better for the player.
+    fn evaluate(&self, state: &State) -> Score;
+}
+
+/// Example eval where our both should move right when it can.
+struct MoveRightEval;
+impl Evaluator for MoveRightEval {
+    fn evaluate(&self, state: &State) -> Score {
+        state.pos.x as Score
+    }
+}
+struct MoveRightAliveEval;
+impl Evaluator for MoveRightAliveEval {
+    fn evaluate(&self, state: &State) -> Score {
+        if !state.game_over {
+            state.pos.x as Score
+        } else {
+            -50000 + state.tick as Score
+        }
+    }
+}
+
+trait Search {
+    fn choose_move(&self, state: &State, evaluator: &dyn Evaluator) -> Option<Move>;
+}
+
+/// Example search implementation that just picks the first available move.
+struct FirstMoveSearch;
+impl Search for FirstMoveSearch {
+    fn choose_move(&self, state: &State, _evaluator: &dyn Evaluator) -> Option<Move> {
+        return state.generate_moves()[0]
+    }
+}
+
+struct MinimaxSearch {
+    max_depth: i8,
+}
+impl MinimaxSearch {
+    fn search(&self, state: &State, evaluator: &dyn Evaluator, depth: i8) -> Score {
+        if depth == 0 || state.game_over {
+            return evaluator.evaluate(state);
+        }
+        let scores = state.generate_moves().into_iter()
+                .map(|m| self.move_value(state, m, evaluator, depth));
+        let score = if state.is_player_turn() { scores.max() } else { scores.min() };
+        score.unwrap()
+    }
+
+    fn move_value(&self, state: &State, action: Option<Move>,
+                  evaluator: &dyn Evaluator, depth: i8) -> Score {
+        let mut state = state.clone();
+        state.apply(action);
+        self.search(&state, evaluator, depth - 1)
+    }
+
+    fn get_max_score_moves<F>(&self, moves: Vec<Option<Move>>, score_fn: F) -> Vec<Option<Move>> where 
+        F: Fn(Option<Move>) -> Score {
+        let move_scores: Vec<Score> = moves.iter().cloned().map(score_fn).collect();
+        let max_score = *move_scores.iter().max().unwrap();
+        moves.iter().zip(move_scores.iter())
+            .filter(|(_, &s)| s == max_score)
+            .map(|(&m, _)| m)
+            .collect()
+    }
+}
+impl Search for MinimaxSearch {
+    fn choose_move(&self, state: &State, evaluator: &dyn Evaluator) -> Option<Move> {
+        // If we just pick the one with the highest score, we might end up with
+        // "lazy" moves, where both a move and None could get to a position at
+        // depth D. To make this less common, of the best final moves, greedily
+        // pick the next moves. For equal greediness, randomly pick.
+        let moves = state.generate_moves();
+        let best_moves = self.get_max_score_moves(
+            moves, |m| self.move_value(state, m, evaluator, self.max_depth));
+        let greedy_moves = self.get_max_score_moves(
+            best_moves, |m| self.move_value(state, m, evaluator, 1));
+        *greedy_moves.choose(&mut rand::thread_rng()).unwrap()
     }
 }
 
 pub struct Bot {
 }
 
-fn move_score(root: &SearchNode, m: &Option<Move>, grid: &Grid, depth: usize) -> f32 {
-    if depth == 0 {
-        // Only bother sampling if enemies are moving (random)
-        let sample_size = if root.enemies_move() { 10 } else { 1 };
-        let mut score_sum = 0.0;
-        for _ in 0..sample_size {
-            let mut node = root.clone();
-            node.apply_move(m, &grid);
-            node.simulate_enemies(&grid);
-            let stats = node.compute_stats(&grid);
-            let mut score: f32 = (stats.safety + stats.walkable_tiles) as f32;
-            if stats.dead {
-                score -= 500.0;
-            }
-            score_sum += score;
-        }
-        score_sum / (sample_size as f32)
-    } else {
-        let mut score_sum = 0.0;
-        // Only bother sampling if enemies are moving (random)
-        let sample_size = if root.enemies_move() { 10 } else { 1 };
-        for _ in 0..sample_size {
-            let mut sample_sum = 0.0;
-            let mut node = root.clone();
-            node.apply_move(m, &grid);
-            node.simulate_enemies(&grid);
-            let mut moves: Vec<Option<Move>> = grid.available_moves(&node.pos)
-                .iter().map(|&m| Some(m)).collect();
-            moves.push(None);
-            for m in &moves {
-                sample_sum += move_score(&node, m, &grid, depth - 1);
-            }
-            score_sum += sample_sum / (moves.len() as f32);
-        }
-        score_sum / (sample_size as f32)
-    }
-}
-
 impl Bot {
     pub fn pick_move(&self, game: &Game) -> Option<Move> {
-        let mut moves: Vec<Option<Move>> = game.grid.available_moves(&game.pos)
-            .iter().map(|&m| Some(m)).collect();
-        moves.push(None);
-        let node = SearchNode::new(game);
-        moves.into_iter().max_by_key(|m| {
-            let depth = 4;
-            let score = move_score(&node, m, &game.grid, depth);
-            println!("Option {m:?} has score: {score}");
-            OrderedFloat(score)
-        }).unwrap()
+        // TODO: optim while we don't clone rg: remove unreachable threats
+        let state = State::new(game);
+        let strategy = MinimaxSearch { max_depth: 10 };
+        strategy.choose_move(&state, &MoveRightAliveEval{})
     }
 }
