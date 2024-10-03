@@ -1,6 +1,31 @@
 use std::sync::Arc;
 use strum_macros::EnumIter;
 use strum::IntoEnumIterator;
+use once_cell::sync::Lazy;
+
+const MAX_TICKS: usize = 2000;
+
+/// Lookup of whether a given tick (index lookup) is a tick where threats move.
+static IS_MOVE_TICK: Lazy<Vec<bool>> = Lazy::new(|| {
+    // Logic from:
+    // https://github.com/JesseEmond/blitz-2025-registration/blob/6c705ae3a3ffcf806e28a5e3ba700a3b2a7f3ca8/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L80-L88
+    // Computed once so that we can look it up without keeping track of state.
+    let mut is_move_tick = Vec::new();
+    // Not entirely sure why despite reading the reversed code, but if we don't
+    // do this we are off-by-one.
+    is_move_tick.push(false);
+    let mut ticks_since_last_move = 0;
+    for tick in 0..=MAX_TICKS {
+        let mut do_move = false;
+        ticks_since_last_move += 1;
+        if ticks_since_last_move >= Threat::move_every_n_ticks(tick) {
+            ticks_since_last_move = 0;
+            do_move = true;
+        }
+        is_move_tick.push(do_move);
+    }
+    is_move_tick
+});
 
 // Styles map to internal names in the JS here:
 // https://github.com/JesseEmond/blitz-2025-registration/blob/7afcfb849b990caa69cee0f83ae96aae6f49740f/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L452C80-L452C88
@@ -84,6 +109,7 @@ pub struct Threat {
     pub pos: Pos,
     pub style: Style,
     seed: usize,
+
 }
 
 impl Threat {
@@ -94,7 +120,7 @@ impl Threat {
     }
 
     fn simulate(&mut self, tick: usize, _player: &Pos, grid: &Grid) {
-        if tick % Self::move_every_n_ticks(tick) != 0 {
+        if !Self::moves_on_tick(tick) {
             return;
         }
         let prev_pos = self.pos;
@@ -121,6 +147,10 @@ impl Threat {
             301..=500 => 4,
             0..=300 => 5,
         }
+    }
+
+    pub fn moves_on_tick(tick: usize) -> bool {
+        IS_MOVE_TICK[tick]
     }
 
     fn get_possible_directions(&self, grid: &Grid) -> Vec<Move> {
@@ -178,7 +208,7 @@ impl State {
     }
 
     fn are_threats_moving(&self) -> bool {
-        self.tick % Threat::move_every_n_ticks(self.tick) == 0
+        Threat::moves_on_tick(self.tick)
     }
 
     fn is_turn_end(&self) -> bool {
