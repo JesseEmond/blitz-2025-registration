@@ -231,7 +231,6 @@ impl State {
     /// Advances the state by a single turn -- player or threat.
     /// Predictable turns are auto-applied and auto-advanced.
     pub fn apply(&mut self, action: Option<Move>) {
-        // TODO: implement undo
         if let Some(m) = action {
             if self.is_player_turn() {
                 self.pos = self.pos.moved(m);
@@ -242,17 +241,13 @@ impl State {
             self.check_game_over();
         }
         self.turn += 1;
-        // TODO: Enable this once we keep the threats in-sync with the game
-        // (i.e. seed is set once -- need to preserve this).
-        // TODO: Unit test that apply predictions match what simulate_tick would
-        // do.
-        // // While we know how to simulate a threat, skip it.
-        // while !self.is_turn_end() {
-        //     if !self.threats[self.turn - 1].simulate(self.tick, &self.pos, &self.grid) {
-        //         break;
-        //     }
-        //     self.turn += 1;
-        // }
+        // While we know how to simulate a threat, skip it.
+        while !self.is_turn_end() {
+            if !self.threats[self.turn - 1].simulate(self.tick, &self.pos, &self.grid) {
+                break;
+            }
+            self.turn += 1;
+        }
         if self.is_turn_end() {
             self.tick += 1;
             self.turn = 0;
