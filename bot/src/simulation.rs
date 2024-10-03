@@ -107,15 +107,16 @@ impl Grid {
 #[derive(Clone)]
 pub struct Threat {
     pub pos: Pos,
+    /// Direction the threat is facing.
+    pub dir: Move,
     pub style: Style,
     seed: usize,
-
 }
 
 impl Threat {
-    pub fn new(pos: Pos, style: Style) -> Self {
-        let mut t = Threat { pos, style, seed: 0 };
-        t._next_rand();  // Generate a random direction
+    pub fn new(pos: Pos, style: Style, dir: Move) -> Self {
+        let mut t = Threat { pos, style, dir, seed: 0 };
+        t._next_rand();  // The initial direction was generated via randomness
         t
     }
 
@@ -124,19 +125,22 @@ impl Threat {
         if !Self::moves_on_tick(tick) {
             return false;
         }
-        let known = match self.style {
+        let next_move = match self.style {
             Style::Goldfish => {
                 // See girouette.js
                 let directions = self.get_possible_directions(grid);
                 let o = self._next_rand() * directions.len() as f64;
                 let idx = o.floor();
-                self.pos = self.pos.moved(directions[idx as usize]);
-                true
+                Some(directions[idx as usize])
             },
-            _ => false,  // TODO: implement other styles
+            _ => None,  // TODO: implement other styles
         };
+        if let Some(m) = next_move {
+            self.pos = self.pos.moved(m);
+            self.dir = m;
+        }
         // TODO: remove return once we have 100% predictions
-        known
+        !next_move.is_none()
     }
 
     fn move_every_n_ticks(tick: usize) -> usize {
@@ -248,17 +252,22 @@ impl State {
                 self.pos = self.pos.moved(m);
             } else {
                 self.threat_turn_mut().pos = self.threat_turn().pos.moved(m);
+                self.threat_turn_mut().dir = m;
             }
             self.check_game_over();
         }
         self.turn += 1;
-        // While we know how to simulate a threat, skip it.
-        while !self.is_turn_end() {
-            if !self.threats[self.turn - 1].simulate(self.tick, &self.pos, &self.grid) {
-                break;
-            }
-            self.turn += 1;
-        }
+        // TODO: Enable this once we keep the threats in-sync with the game
+        // (i.e. seed is set once -- need to preserve this).
+        // TODO: Unit test that apply predictions match what simulate_tick would
+        // do.
+        // // While we know how to simulate a threat, skip it.
+        // while !self.is_turn_end() {
+        //     if !self.threats[self.turn - 1].simulate(self.tick, &self.pos, &self.grid) {
+        //         break;
+        //     }
+        //     self.turn += 1;
+        // }
         if self.is_turn_end() {
             self.tick += 1;
             self.turn = 0;

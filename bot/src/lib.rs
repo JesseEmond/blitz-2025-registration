@@ -23,6 +23,34 @@ pub enum Action {
 
 #[pyclass]
 #[derive(Clone)]
+pub enum GameDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+impl GameDirection {
+    fn to_move(&self) -> Move {
+        match self {
+            Self::Up => Move::Up,
+            Self::Down => Move::Down,
+            Self::Left => Move::Left,
+            Self::Right => Move::Right,
+        }
+    }
+    fn from_move(m: Move) -> Self {
+        match m {
+            Move::Up => Self::Up,
+            Move::Down => Self::Down,
+            Move::Left => Self::Left,
+            Move::Right => Self::Right,
+        }
+    }
+}
+
+#[pyclass]
+#[derive(Clone)]
 pub struct GamePosition {
     #[pyo3(get, set)]
     pub x: i32,
@@ -44,14 +72,16 @@ pub struct GameThreat {
     #[pyo3(get, set)]
     pub position: GamePosition,
     #[pyo3(get, set)]
+    pub direction: GameDirection,
+    #[pyo3(get, set)]
     pub style: String,
 }
 
 #[pymethods]
 impl GameThreat {
     #[new]
-    pub fn new(position: GamePosition, style: String) -> GameThreat {
-        GameThreat { position, style }
+    pub fn new(position: GamePosition, direction: GameDirection, style: String) -> GameThreat {
+        GameThreat { position, direction, style }
     }
 }
 
@@ -99,6 +129,42 @@ impl GameState {
     }
 }
 
+impl GameState {
+    fn to_game(&self) -> Game {
+        Game {
+            tick: self.tick as usize,
+            pos: Pos { x: self.position.x as i16, y: self.position.y as i16 },
+            grid: Grid {
+                width: self.map.width as u8,
+                height: self.map.height as u8,
+                tiles: self.map.tiles.clone(),
+            },
+            threats: self.threats.iter().map(
+                |t| Threat::new(Pos { x: t.position.x as i16, y: t.position.y as i16 },
+                                from_style_name(&t.style),
+                                t.direction.to_move()))
+                .collect(),
+            alive: self.alive,
+        }
+    }
+
+    fn from_game(game: &Game, prev_state: &Self) -> Self {
+        GameState {
+            position: GamePosition { x: game.pos.x as i32, y: game.pos.y as i32 },
+            tick: game.tick as u32,
+            threats: game.threats.iter().zip(prev_state.threats.iter())
+                .map(|(t, prev_t)| GameThreat {
+                    position: GamePosition { x: t.pos.x as i32, y: t.pos.y as i32 },
+                    direction: GameDirection::from_move(t.dir),
+                    style: prev_t.style.clone(),  // That doesn't change.
+                })
+                .collect(),
+            alive: game.alive,
+            map: prev_state.map.clone(),  // That doesn't change.
+        }
+    }
+}
+
 #[pyclass]
 pub struct GameSimulator {
     state: State,
@@ -109,12 +175,12 @@ impl GameSimulator {
     #[new]
     pub fn new(game_state: &GameState) -> Self {
         let init_state = game_state.clone();
-        GameSimulator { state: State::new(to_game(game_state)), init_state }
+        GameSimulator { state: State::new(game_state.to_game()), init_state }
     }
 
     pub fn predict_next_tick(&mut self, action: Action) -> PyResult<GameState> {
         self.state.simulate_tick(to_move(action));
-        Ok(from_game(&Game {
+        Ok(GameState::from_game(&Game {
             tick: self.state.tick,
             pos: self.state.pos,
             grid: Grid::clone(&self.state.grid),
@@ -133,37 +199,6 @@ fn from_style_name(style: &str) -> Style {
         "deer" => Style::Deer,
         "hawk" => Style::Hawk,
         &_ => panic!("Unsupported style name: {}", style),
-    }
-}
-
-fn to_game(game_state: &GameState) -> Game {
-    Game {
-        tick: game_state.tick as usize,
-        pos: Pos { x: game_state.position.x as i16, y: game_state.position.y as i16 },
-        grid: Grid {
-            width: game_state.map.width as u8,
-            height: game_state.map.height as u8,
-            tiles: game_state.map.tiles.clone(),
-        },
-        threats: game_state.threats.iter().map(
-            |t| Threat::new(Pos { x: t.position.x as i16, y: t.position.y as i16 },
-                            from_style_name(&t.style)))
-            .collect(),
-        alive: game_state.alive,
-    }
-}
-fn from_game(game: &Game, prev_state: &GameState) -> GameState {
-    GameState {
-        position: GamePosition { x: game.pos.x as i32, y: game.pos.y as i32 },
-        tick: game.tick as u32,
-        threats: game.threats.iter().zip(prev_state.threats.iter())
-            .map(|(t, prev_t)| GameThreat {
-                position: GamePosition { x: t.pos.x as i32, y: t.pos.y as i32 },
-                style: prev_t.style.clone(),  // That doesn't change.
-            })
-            .collect(),
-        alive: game.alive,
-        map: prev_state.map.clone(),  // That doesn't change.
     }
 }
 
@@ -191,13 +226,14 @@ fn to_move(action: Action) -> Option<Move> {
 #[pyfunction]
 fn pick_action(game_state: &GameState) -> PyResult<Action> {
     let bot = Bot {};
-    Ok(from_move(bot.pick_move(to_game(game_state))))
+    Ok(from_move(bot.pick_move(game_state.to_game())))
 }
 
 #[pymodule]
 fn devnull_bot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(pick_action, m)?)?;
     m.add_class::<GamePosition>()?;
+    m.add_class::<GameDirection>()?;
     m.add_class::<GameThreat>()?;
     m.add_class::<GameMap>()?;
     m.add_class::<GameState>()?;

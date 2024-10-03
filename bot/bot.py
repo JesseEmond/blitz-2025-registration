@@ -11,6 +11,7 @@ def create_rust_position(position: Position) -> devnull_bot.GamePosition:
 def create_rust_threat(threat: Threat) -> devnull_bot.GameThreat:
     return devnull_bot.GameThreat(
         position=create_rust_position(threat.position),
+        direction=create_rust_direction(threat.direction),
         style=threat.style)
 
 
@@ -44,6 +45,18 @@ def rust_action_to_action(action: devnull_bot.Action) -> Direction | None:
     else:
         raise NotImplementedError(action)
 
+def create_rust_direction(direction: str) -> devnull_bot.GameDirection:
+    if direction == "up":
+        return devnull_bot.GameDirection.Up
+    elif direction == "down":
+        return devnull_bot.GameDirection.Down
+    elif direction == "left":
+        return devnull_bot.GameDirection.Left
+    elif direction == "right":
+        return devnull_bot.GameDirection.Right
+    else:
+        raise NotImplementedError(direction)
+
 
 def verify_prediction(predicted: devnull_bot.GameState, actual: devnull_bot.GameState) -> None:
     def _eq_pos(a, b): return a.x == b.x and a.y == b.y
@@ -64,8 +77,12 @@ def verify_prediction(predicted: devnull_bot.GameState, actual: devnull_bot.Game
         if style in ["goldfish"]:
             if not _eq_pos(predicted_threat.position, actual_threat.position):
                 raise ValueError(
-                    f"Predicted {style} {_pr_pos(predicted_threat.position)}, got "
+                    f"Predicted {style} pos {_pr_pos(predicted_threat.position)}, got "
                     f"{_pr_pos(actual_threat.position)}")
+            if predicted_threat.direction != actual_threat.direction:
+                raise ValueError(
+                    f"Predicted {style} dir {predicted_threat.direction}, got "
+                    f"{actual_threat.direction}")
         else:
             # TODO: Once we fully predict threats, crash here.
             print(f"[TODO] Learn to predict {style}")
