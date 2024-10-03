@@ -119,23 +119,24 @@ impl Threat {
         t
     }
 
-    fn simulate(&mut self, tick: usize, _player: &Pos, grid: &Grid) {
+    /// Returns whether we know how to simulate this threat.
+    fn simulate(&mut self, tick: usize, _player: &Pos, grid: &Grid) -> bool {
         if !Self::moves_on_tick(tick) {
-            return;
+            return false;
         }
-        let prev_pos = self.pos;
-        match self.style {
+        let known = match self.style {
             Style::Goldfish => {
                 // See girouette.js
                 let directions = self.get_possible_directions(grid);
                 let o = self._next_rand() * directions.len() as f64;
                 let idx = o.floor();
                 self.pos = self.pos.moved(directions[idx as usize]);
+                true
             },
-            _ => ()  // TODO: implement other styles
-        }
-        // TODO: remove once confident in preditions
-        println!("{:?} will move from {:?} to {:?}", self.style, prev_pos, self.pos);
+            _ => false,  // TODO: implement other styles
+        };
+        // TODO: remove return once we have 100% predictions
+        known
     }
 
     fn move_every_n_ticks(tick: usize) -> usize {
@@ -251,6 +252,13 @@ impl State {
             self.check_game_over();
         }
         self.turn += 1;
+        // While we know how to simulate a threat, skip it.
+        while !self.is_turn_end() {
+            if !self.threats[self.turn - 1].simulate(self.tick, &self.pos, &self.grid) {
+                break;
+            }
+            self.turn += 1;
+        }
         if self.is_turn_end() {
             self.tick += 1;
             self.turn = 0;
@@ -264,7 +272,11 @@ impl State {
             self.pos = self.pos.moved(m);
         }
         for t in &mut self.threats {
-            t.simulate(self.tick, &self.pos, &self.grid);
+            let prev_pos = t.pos;
+            if t.simulate(self.tick, &self.pos, &self.grid) {
+                // TODO: remove once confident in preditions
+                println!("{:?} will move from {:?} to {:?}", t.style, prev_pos, t.pos);
+            }
         }
         self.tick += 1;
     }
