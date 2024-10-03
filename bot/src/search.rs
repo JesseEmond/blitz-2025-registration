@@ -101,7 +101,7 @@ pub struct Bot {
 }
 
 impl Bot {
-    pub fn pick_move(&self, game: &Game) -> Option<Move> {
+    pub fn pick_move(&self, game: Game) -> Option<Move> {
         // TODO: optim while we don't clone rng: remove unreachable threats
         let state = State::new(game);
         let strategy = MinimaxSearch { max_depth: 10 };

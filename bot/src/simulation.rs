@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use strum_macros::EnumIter;
 use strum::IntoEnumIterator;
 
@@ -40,6 +41,7 @@ impl Pos {
     }
 }
 
+#[derive(Clone)]
 pub struct Grid {
     pub width: u8,
     pub height: u8,
@@ -78,11 +80,12 @@ pub struct Game {
     pub pos: Pos,
     pub grid: Grid,
     pub threats: Vec<Threat>,
+    pub alive: bool,
 }
 
 #[derive(Clone)]
-pub struct State<'a> {
-    pub grid: &'a Grid,
+pub struct State {
+    pub grid: Arc<Grid>,
     pub tick: usize,
     pub pos: Pos,
     pub threats: Vec<Threat>,
@@ -90,14 +93,14 @@ pub struct State<'a> {
     turn: usize,  // 0: player turn, 1+: turn for threat idx+1
 }
 
-impl State<'_> {
-    pub fn new(game: &Game) -> State {
+impl State {
+    pub fn new(game: Game) -> State {
         let mut state = State {
-            grid: &game.grid,
+            grid: Arc::new(game.grid),
             tick: game.tick,
             pos: game.pos,
             threats: game.threats.clone(),
-            game_over: false,
+            game_over: !game.alive,
             turn: 0,
         };
         state.check_game_over();
@@ -169,6 +172,15 @@ impl State<'_> {
             self.tick += 1;
             self.turn = 0;
         }
+    }
+
+    /// Similar to 'apply', but directly replicates the server tick logic.
+    pub fn simulate_tick(&mut self, action: Option<Move>) {
+        self.tick += 1;
+        if let Some(m) = action {
+            self.pos = self.pos.moved(m);
+        }
+        // TODO: Simulate threat movements
     }
 }
 

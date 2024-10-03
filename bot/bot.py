@@ -31,7 +31,8 @@ def create_rust_game_state(game: TeamGameState) -> devnull_bot.GameState:
         tick=game.tick,
         position=create_rust_position(game.yourCharacter.position),
         threats=[create_rust_threat(t) for t in game.threats],
-        map=create_rust_map(game.map))
+        map=create_rust_map(game.map),
+        alive=game.yourCharacter.alive)
 
 
 def rust_action_to_action(action: devnull_bot.Action) -> Direction | None:
@@ -49,15 +50,35 @@ def rust_action_to_action(action: devnull_bot.Action) -> Direction | None:
         raise NotImplementedError(action)
 
 
+def verify_prediction(predicted: devnull_bot.GameState, actual: devnull_bot.GameState) -> None:
+    def _eq_pos(a, b): return a.x == b.x and a.y == b.y
+    def _pr_pos(p): return f"{{x:{p.x},y:{p.y}}}"
+    if predicted.tick != actual.tick:
+        raise ValueError(f"Predicted tick {predicted.tick}, got {actual.tick}")
+    if not _eq_pos(predicted.position, actual.position):
+        raise ValueError(
+            f"Predicted pos {_pr_pos(predicted.position)}, got "
+            f"{_pr_pos(actual.position)}")
+    # TODO: Predict 'alive' state
+    # TODO: Verify threats positions
+
+
 class Bot:
     def __init__(self):
         print("Initializing your super mega duper bot")
+        self.simulator = None
+        self.predicted_state = None
 
     def get_next_move(self, game_message: TeamGameState):
         start_time = time.time()
         actions = []
         state = create_rust_game_state(game_message)
+        if self.simulator is None:
+            self.simulator = devnull_bot.GameSimulator(state)
+        if self.predicted_state is not None:
+            verify_prediction(self.predicted_state, state)
         action = devnull_bot.pick_action(state)
+        self.predicted_state = self.simulator.predict_next_tick(action)
         direction = rust_action_to_action(action)
         if direction is not None:
             actions.append(direction_to_action(direction))
