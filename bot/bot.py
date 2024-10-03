@@ -74,7 +74,7 @@ def verify_prediction(predicted: devnull_bot.GameState, actual: devnull_bot.Game
     for predicted_threat, actual_threat in zip(predicted.threats, actual.threats):
         assert predicted_threat.style == actual_threat.style
         style = predicted_threat.style
-        if style in ["goldfish"]:
+        if style in ["goldfish", "bull"]:
             if not _eq_pos(predicted_threat.position, actual_threat.position):
                 raise ValueError(
                     f"Predicted {style} pos {_pr_pos(predicted_threat.position)}, got "

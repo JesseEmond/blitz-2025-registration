@@ -45,7 +45,7 @@ pub enum Style {
     Hawk,
 }
 
-#[derive(EnumIter, Copy, Clone, Debug)]
+#[derive(EnumIter, Copy, Clone, Debug, PartialEq)]
 pub enum Move {
     Up,
     Down,
@@ -132,6 +132,17 @@ impl Threat {
                 let o = self._next_rand() * directions.len() as f64;
                 let idx = o.floor();
                 Some(directions[idx as usize])
+            },
+            Style::Bull => {
+                // See straight_ahead_threat.js
+                let directions = self.get_possible_directions(grid);
+                if directions.contains(&self.dir) {
+                    Some(self.dir)
+                } else {
+                    let o = self._next_rand() * directions.len() as f64;
+                    let idx = o.floor();
+                    Some(directions[idx as usize])
+                }
             },
             _ => None,  // TODO: implement other styles
         };
