@@ -28,6 +28,9 @@ function disassemble_js_files() {
             # Don't disassemble previous outputs of this script (we'll replace
             # those anyway).
             continue
+        elif [[ "$file" == *.decomp.js ]]; then
+            # Similarly for manually annotated files.
+            continue
         fi
         output="${file%.js}.disass.js"
         "${patched_node}" ./disassemble_unpacked.js "$file" > "${output}"
