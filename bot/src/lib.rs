@@ -8,7 +8,7 @@ pub mod simulation;
 use pyo3::prelude::*;
 
 use crate::search::Bot;
-use crate::simulation::{Game, Grid, Move, Pos, State, Threat};
+use crate::simulation::{Game, Grid, Move, Pos, State, Style, Threat};
 
 #[pyclass]
 #[derive(Clone)]
@@ -124,6 +124,18 @@ impl GameSimulator {
     }
 }
 
+fn from_style_name(style: &str) -> Style {
+    match style {
+        "goldfish" => Style::Goldfish,
+        "bull" => Style::Bull,
+        "shark" => Style::Shark,
+        "owl" => Style::Owl,
+        "deer" => Style::Deer,
+        "hawk" => Style::Hawk,
+        &_ => panic!("Unsupported style name: {}", style),
+    }
+}
+
 fn to_game(game_state: &GameState) -> Game {
     Game {
         tick: game_state.tick as usize,
@@ -134,7 +146,8 @@ fn to_game(game_state: &GameState) -> Game {
             tiles: game_state.map.tiles.clone(),
         },
         threats: game_state.threats.iter().map(
-            |t| Threat { pos: Pos { x: t.position.x as i16, y: t.position.y as i16 } })
+            |t| Threat::new(Pos { x: t.position.x as i16, y: t.position.y as i16 },
+                            from_style_name(&t.style)))
             .collect(),
         alive: game_state.alive,
     }

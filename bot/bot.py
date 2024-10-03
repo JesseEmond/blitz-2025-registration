@@ -3,11 +3,6 @@ import time
 from game_message import *
 import devnull_bot
 
-# TODO: What do the styles/personalities mean?
-# Seen in games.
-# KNOWN_PERSONALITIES = ["lazy", "tease"]
-# KNOWN_STYLES = ["bull", "hawk", "shark", "goldfish", "deer", "hawk", "owl"]
-
 
 def create_rust_position(position: Position) -> devnull_bot.GamePosition:
     return devnull_bot.GamePosition(x=position.x, y=position.y)
@@ -59,8 +54,21 @@ def verify_prediction(predicted: devnull_bot.GameState, actual: devnull_bot.Game
         raise ValueError(
             f"Predicted pos {_pr_pos(predicted.position)}, got "
             f"{_pr_pos(actual.position)}")
-    # TODO: Predict 'alive' state
-    # TODO: Verify threats positions
+    if predicted.alive != actual.alive:
+        # TODO: Once we fully predict threats, enable.
+        # raise ValueError(f"Predicted alive {predicted.alive}, got {actual.alive}")
+        print(f"[TODO] Learn to predict all threats")
+    for predicted_threat, actual_threat in zip(predicted.threats, actual.threats):
+        assert predicted_threat.style == actual_threat.style
+        style = predicted_threat.style
+        if style in ["goldfish"]:
+            if not _eq_pos(predicted_threat.position, actual_threat.position):
+                raise ValueError(
+                    f"Predicted {style} {_pr_pos(predicted_threat.position)}, got "
+                    f"{_pr_pos(actual_threat.position)}")
+        else:
+            # TODO: Once we fully predict threats, crash here.
+            print(f"[TODO] Learn to predict {style}")
 
 
 class Bot:
