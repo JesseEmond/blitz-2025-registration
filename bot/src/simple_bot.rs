@@ -107,8 +107,23 @@ impl State<'_> {
         }
     }
 
+    fn get_tick_speed_map(&self) -> usize {
+        // See https://github.com/JesseEmond/blitz-2025-registration/blob/e2472c198b9ebea2e88ca07d6df8759f11fcaf4b/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L55-L79
+        match self.tick {
+            901.. => 1,
+            701..=900 => 2,
+            501..=700 => 3,
+            301..=500 => 4,
+            0..=300 => 5,
+        }
+    }
+
+    fn are_threats_moving(&self) -> bool {
+        self.tick % self.get_tick_speed_map() == 0
+    }
+
     fn is_turn_end(&self) -> bool {
-        self.turn == 1 + self.threats.len()
+        !self.are_threats_moving() || self.turn == 1 + self.threats.len()
     }
 
     fn is_player_turn(&self) -> bool {
