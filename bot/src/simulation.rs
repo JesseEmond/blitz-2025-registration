@@ -272,6 +272,11 @@ impl State {
     /// Similar to 'apply', but directly replicates the server tick logic.
     pub fn simulate_tick(&mut self, action: Option<Move>) {
         self.check_game_over();
+        if self.game_over {
+            let killers: Vec<Style> = self.threats.iter().filter(|t| t.pos == self.pos)
+                .map(|t| t.style).collect();
+            println!("Got killed by {:?} on {:?}!", killers, self.pos)
+        }
         if let Some(m) = action {
             self.pos = self.pos.moved(m);
         }
@@ -388,6 +393,7 @@ mod tests {
             // All predictable threats, should have moved to next turn.
             assert!(applied.is_player_turn());
             assert_eq!(simulated.tick, applied.tick);
+            assert_eq!(simulated.game_over, applied.game_over);
             assert_eq!(simulated.pos, applied.pos);
             assert_eq!(simulated.threats, applied.threats);
         }
