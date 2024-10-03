@@ -4,10 +4,14 @@ use strum_macros::EnumIter;
 
 #[derive(EnumIter, Copy, Clone, Debug)]
 pub enum Move {
-    Up,
-    Down,
+    // Note: ordering here is deliberately matching the decompiled JS order
+    // in getPossibleDirections: ["left", "right", "up", "down"]
+    // Keeping this fixed helps with predicting randomness.
+    // https://github.com/JesseEmond/blitz-2025-registration/blob/e2472c198b9ebea2e88ca07d6df8759f11fcaf4b/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L129
     Left,
     Right,
+    Up,
+    Down
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -270,7 +274,7 @@ pub struct Bot {
 
 impl Bot {
     pub fn pick_move(&self, game: &Game) -> Option<Move> {
-        // TODO: optim while we don't clone rg: remove unreachable threats
+        // TODO: optim while we don't clone rng: remove unreachable threats
         let state = State::new(game);
         let strategy = MinimaxSearch { max_depth: 10 };
         strategy.choose_move(&state, &ThreatsAreFarEval{})
