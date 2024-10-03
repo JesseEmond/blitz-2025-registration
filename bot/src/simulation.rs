@@ -29,7 +29,7 @@ static IS_MOVE_TICK: Lazy<Vec<bool>> = Lazy::new(|| {
 
 // Styles map to internal names in the JS here:
 // https://github.com/JesseEmond/blitz-2025-registration/blob/7afcfb849b990caa69cee0f83ae96aae6f49740f/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L452C80-L452C88
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Style {
     /// Aka "girouette"
     Goldfish,
@@ -217,34 +217,6 @@ impl State {
         state
     }
 
-    fn check_game_over(&mut self) {
-        if !self.game_over {
-            self.game_over = self.threats.iter().any(|t| t.pos == self.pos);
-        }
-    }
-
-    fn are_threats_moving(&self) -> bool {
-        Threat::moves_on_tick(self.tick)
-    }
-
-    fn is_turn_end(&self) -> bool {
-        !self.are_threats_moving() || self.turn == 1 + self.threats.len()
-    }
-
-    pub fn is_player_turn(&self) -> bool {
-        self.turn == 0
-    }
-    
-    fn threat_turn(&self) -> &Threat {
-        assert!(self.turn > 0);
-        &self.threats[self.turn - 1]
-    }
-
-    fn threat_turn_mut(&mut self) -> &mut Threat {
-        assert!(self.turn > 0);
-        &mut self.threats[self.turn - 1]
-    }
-
     pub fn generate_moves(&self) -> Vec<Option<Move>> {
         let mut moves = Vec::new();
         if self.is_player_turn() {
@@ -256,6 +228,8 @@ impl State {
         moves
     }
 
+    /// Advances the state by a single turn -- player or threat.
+    /// Predictable turns are auto-applied and auto-advanced.
     pub fn apply(&mut self, action: Option<Move>) {
         // TODO: implement undo
         if let Some(m) = action {
@@ -285,6 +259,10 @@ impl State {
         }
     }
 
+    pub fn is_player_turn(&self) -> bool {
+        self.turn == 0
+    }
+
     /// Similar to 'apply', but directly replicates the server tick logic.
     pub fn simulate_tick(&mut self, action: Option<Move>) {
         self.check_game_over();
@@ -300,5 +278,63 @@ impl State {
         }
         self.tick += 1;
     }
+
+    /// Update our state based on what the server sent back.
+    pub fn update_observed_state(&mut self, game: &Game) {
+        // TODO: Replace with only asserts once we perfectly predict the game
+        assert!(self.tick == game.tick, "tick predicted={} actual={}",
+                self.tick, game.tick);
+        assert!(self.pos == game.pos, "pos predicted={:?} actual={:?}",
+                self.pos, game.pos);
+        if self.game_over != !game.alive {
+            self.game_over = !game.alive;
+            println!("[TODO] Learn to predict all threats");
+        }
+        self.threats.iter_mut().zip(game.threats.iter()).for_each(|(threat, actual)| {
+            assert!(threat.style == actual.style);
+            // TODO: Should eventually all be true.
+            let can_predict = match threat.style {
+                Style::Goldfish | Style::Bull => true,
+                _ => false,
+            };
+            if can_predict {
+                assert!(threat.dir == actual.dir,
+                        "{:?} dir predicted={:?} actual={:?}", threat.style,
+                        threat.dir, actual.dir);
+                assert!(threat.pos == actual.pos,
+                        "{:?} pos predicted={:?} actual={:?}", threat.style,
+                        threat.pos, actual.pos);
+            } else {
+                println!("[TODO] Learn to predict {:?}", threat.style);
+                threat.pos = actual.pos;
+                threat.dir = actual.dir;
+            }
+        });
+    }
+
+    fn check_game_over(&mut self) {
+        if !self.game_over {
+            self.game_over = self.threats.iter().any(|t| t.pos == self.pos);
+        }
+    }
+
+    fn are_threats_moving(&self) -> bool {
+        Threat::moves_on_tick(self.tick)
+    }
+
+    fn is_turn_end(&self) -> bool {
+        !self.are_threats_moving() || self.turn == 1 + self.threats.len()
+    }
+    
+    fn threat_turn(&self) -> &Threat {
+        assert!(self.turn > 0);
+        &self.threats[self.turn - 1]
+    }
+
+    fn threat_turn_mut(&mut self) -> &mut Threat {
+        assert!(self.turn > 0);
+        &mut self.threats[self.turn - 1]
+    }
+
 }
 

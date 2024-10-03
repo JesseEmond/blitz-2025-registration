@@ -98,13 +98,16 @@ impl Search for MinimaxSearch {
 }
 
 pub struct Bot {
+    pub state: State,
 }
 
 impl Bot {
-    pub fn pick_move(&self, game: Game) -> Option<Move> {
-        // TODO: optim while we don't clone rng: remove unreachable threats
-        let state = State::new(game);
+    /// Update state based on 'game', pick our next move, apply it locally.
+    pub fn pick_move(&mut self, game: &Game) -> Option<Move> {
+        self.state.update_observed_state(game);
         let strategy = MinimaxSearch { max_depth: 10 };
-        strategy.choose_move(&state, &ThreatsAreFarEval{})
+        let picked = strategy.choose_move(&self.state, &ThreatsAreFarEval{});
+        self.state.simulate_tick(picked);
+        picked
     }
 }
