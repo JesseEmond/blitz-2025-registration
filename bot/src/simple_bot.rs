@@ -31,6 +31,10 @@ impl Pos {
             }
         }
     }
+
+    fn manhattan_dist(&self, other: &Pos) -> usize {
+        ((self.x - other.x).abs() + (self.y - other.y).abs()) as usize
+    }
 }
 
 pub struct Grid {
@@ -175,6 +179,19 @@ impl Evaluator for MoveRightAliveEval {
     }
 }
 
+struct ThreatsAreFarEval;
+impl Evaluator for ThreatsAreFarEval {
+    fn evaluate(&self, state: &State) -> Score {
+        if !state.game_over {
+            // TODO: Worth doing a proper pathfinding distance?
+            state.threats.iter().map(|t| t.pos.manhattan_dist(&state.pos))
+                .min().unwrap() as Score
+        } else {
+            -50000 + state.tick as Score
+        }
+    }
+}
+
 trait Search {
     fn choose_move(&self, state: &State, evaluator: &dyn Evaluator) -> Option<Move>;
 }
@@ -241,6 +258,6 @@ impl Bot {
         // TODO: optim while we don't clone rg: remove unreachable threats
         let state = State::new(game);
         let strategy = MinimaxSearch { max_depth: 10 };
-        strategy.choose_move(&state, &MoveRightAliveEval{})
+        strategy.choose_move(&state, &ThreatsAreFarEval{})
     }
 }
