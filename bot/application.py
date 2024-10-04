@@ -23,6 +23,7 @@ async def run():
 
     async with websockets.connect(uri, max_size=None) as websocket:
         bot = Bot()
+        save_path = os.environ.get("SAVE_JSONL_PATH")
         if "TOKEN" in os.environ:
             await websocket.send(
                 json.dumps({"type": "REGISTER", "token": os.environ["TOKEN"]})
@@ -34,11 +35,15 @@ async def run():
             )
             local = True
 
-        await game_loop(websocket=websocket, bot=bot, local=local)
+        await game_loop(websocket=websocket, bot=bot, local=local, save_path=save_path)
 
 
-async def game_loop(websocket: websockets.WebSocketServerProtocol, bot: Bot, local: bool):
+async def game_loop(websocket: websockets.WebSocketServerProtocol, bot: Bot,
+                    local: bool, save_path: str | None):
     last_game_message = None
+    if save_path:
+        f_save = open(save_path, 'w')
+        print(f"Saving game ticks to {save_path}")
     while True:
         try:
             message = await websocket.recv()
@@ -46,6 +51,8 @@ async def game_loop(websocket: websockets.WebSocketServerProtocol, bot: Bot, loc
             # Connection is closed, the game is probably over
             print("Websocket was closed.")
             on_end(last_game_message)
+            if save_path:
+                f_save.close()
             break
 
         game_message: TeamGameState = TeamGameState.from_json(message)
@@ -65,6 +72,12 @@ async def game_loop(websocket: websockets.WebSocketServerProtocol, bot: Bot, loc
             if local:
                 raise  # Let it crash -- easier debugging
 
+        if save_path:
+            store = {
+                "game_message": game_message.to_dict(),
+                "actions": [dataclasses.asdict(a) for a in actions],
+            }
+            f_save.write(json.dumps(store) + "\n")
 
         payload = {
             "type": "COMMAND",

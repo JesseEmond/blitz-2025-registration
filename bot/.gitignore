@@ -1,6 +1,9 @@
 # Challenge zip
 devnull.zip
 
+# Local games recorded
+games/*.jsonl
+
 # Python
 # Byte-compiled / optimized / DLL files
 __pycache__/

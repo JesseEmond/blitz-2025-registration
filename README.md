@@ -37,3 +37,19 @@ Then:
 - Upload `devnull.zip`
 - Wait for the build to complete
 - Run `Try us!`
+
+## Tools
+
+### Save local games
+
+```
+cd bot
+SAVE_JSONL_PATH=games/1.jsonl run.sh
+```
+
+This will save each tick's `game_message` and the bot's action as a JSON file,
+one tick per line.
+
+### Replay local games
+
+TODO: Implement & document here.
