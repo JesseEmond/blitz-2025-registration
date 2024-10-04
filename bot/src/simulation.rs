@@ -245,6 +245,7 @@ pub struct State {
     pub grid: Arc<Grid>,
     pub tick: usize,
     pub pos: Pos,
+    prev_pos: Pos,
     pub threats: Vec<Threat>,
     pub game_over: bool,
     turn: usize,  // 0: player turn, 1+: turn for threat idx+1
@@ -252,10 +253,14 @@ pub struct State {
 
 impl State {
     pub fn new(game: Game) -> State {
+        // Matches
+        // https://github.com/JesseEmond/blitz-2025-registration/blob/dbe84ed80ebc441d071d5e6eb0d6a476d580a9e2/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L467
+        let prev_pos = Pos { x: -1, y: -1 };
         let mut state = State {
             grid: Arc::new(game.grid),
             tick: game.tick,
             pos: game.pos,
+            prev_pos,
             threats: game.threats.clone(),
             game_over: !game.alive,
             turn: 0,
@@ -291,7 +296,7 @@ impl State {
         // While we know how to simulate a threat, skip it.
         while !self.is_turn_end() {
             if !self.threats[self.turn - 1].simulate(
-                self.tick, &self.pos, &self.grid) {
+                self.tick, &self.prev_pos, &self.grid) {
                 break;
             }
             self.turn += 1;
@@ -299,6 +304,10 @@ impl State {
         if self.is_turn_end() {
             self.tick += 1;
             self.turn = 0;
+            // Threats see the pos of the player before it moves. Only update
+            // the player's seen position after we're done with a full turn.
+            // See 'simulate_tick' for JS code pointers.
+            self.prev_pos = self.pos;
         }
     }
 
@@ -319,11 +328,14 @@ impl State {
         }
         for t in &mut self.threats {
             let prev_pos = t.pos;
-            if t.simulate(self.tick, &self.pos, &self.grid) {
+            if t.simulate(self.tick, &self.prev_pos, &self.grid) {
                 // TODO: remove once confident in preditions
                 println!("{:?} will move from {:?} to {:?}", t.style, prev_pos, t.pos);
             }
         }
+        // Threats only see the position of the character from th prev tick, see
+        // https://github.com/JesseEmond/blitz-2025-registration/blob/dbe84ed80ebc441d071d5e6eb0d6a476d580a9e2/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/world.decomp.js#L206-L208
+        self.prev_pos = self.pos;
         self.tick += 1;
     }
 
@@ -373,6 +385,27 @@ impl State {
         &mut self.threats[self.turn - 1]
     }
 
+}
+
+#[allow(dead_code)] 
+fn debug_print(grid: &Grid, highlights: Vec<(&Pos, char)>) {
+    for y in 0..(grid.height as i16) {
+        for x in 0..(grid.width as i16) {
+            let pos = Pos { x, y };
+            let highlight = highlights.iter()
+                .filter(|(&p, _)| p == pos)
+                .map(|(_, c)| c)
+                .next();
+            if let Some(c) = highlight {
+                print!("{}", c);
+            } else if grid.is_empty(&pos) {
+                print!(" ");
+            } else {
+                print!("#");
+            }
+        }
+        println!();
+    }
 }
 
 #[cfg(test)]
