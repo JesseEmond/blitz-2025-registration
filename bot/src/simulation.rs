@@ -53,6 +53,17 @@ pub enum Move {
     Right,
 }
 
+impl Move {
+    fn opposite(&self) -> Move {
+        match self {
+            Move::Up => Move::Down,
+            Move::Down => Move::Up,
+            Move::Left => Move::Right,
+            Move::Right => Move::Left,
+        }
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Pos {
     pub x: i16,
@@ -77,6 +88,12 @@ impl Pos {
 
     pub fn manhattan_dist(&self, other: &Pos) -> usize {
         ((self.x - other.x).abs() + (self.y - other.y).abs()) as usize
+    }
+
+    pub fn dist_squared(&self, other: &Pos) -> usize {
+        let dx = self.x - other.x;
+        let dy = self.y - other.y;
+        (dx * dx + dy * dy) as usize
     }
 }
 
@@ -110,12 +127,13 @@ pub struct Threat {
     /// Direction the threat is facing.
     pub dir: Move,
     pub style: Style,
+    spawn: Pos,
     seed: usize,
 }
 
 impl Threat {
     pub fn new(pos: Pos, style: Style, dir: Move) -> Self {
-        let mut t = Threat { pos, style, dir, seed: 0 };
+        let mut t = Threat { pos, style, dir, spawn: pos.clone(), seed: 0 };
         t._next_rand();  // The initial direction was generated via randomness
         t
     }
@@ -123,13 +141,13 @@ impl Threat {
     fn can_predict(style: Style) -> bool {
         // TODO: Remove this fn once all are supported!
         match style {
-            Style::Goldfish | Style::Bull => true,
+            Style::Goldfish | Style::Bull | Style::Deer => true,
             _ => false,
         }
     }
 
     /// Returns whether we know how to simulate this threat.
-    fn simulate(&mut self, tick: usize, _player: &Pos, grid: &Grid) -> bool {
+    fn simulate(&mut self, tick: usize, player: &Pos, grid: &Grid) -> bool {
         if !Self::moves_on_tick(tick) {
             return false;
         }
@@ -150,6 +168,24 @@ impl Threat {
                     let o = self._next_rand() * directions.len() as f64;
                     let idx = o.floor();
                     Some(directions[idx as usize])
+                }
+            },
+            Style::Deer => {
+                // See tse_le_fantome_orange_dans_pacman.js
+                let directions = self.get_possible_directions(grid);
+                if directions.len() == 1 {
+                    Some(directions[0])
+                } else {
+                    let directions = directions.into_iter()
+                        .filter(|&d| d != self.dir.opposite());
+                    let target = if self.pos.dist_squared(&player) > 6 * 6 {
+                        player
+                    } else {
+                        &self.spawn
+                    };
+                    Some(directions.min_by_key(|&d| {
+                        self.pos.moved(d).dist_squared(target)
+                    }).unwrap())
                 }
             },
             _ => None,  // TODO: implement other styles
@@ -199,7 +235,6 @@ impl Threat {
 pub struct Game {
     pub tick: usize,
     pub pos: Pos,
-    pub spawn_pos: Pos,
     pub grid: Grid,
     pub threats: Vec<Threat>,
     pub alive: bool,
@@ -255,7 +290,8 @@ impl State {
         self.turn += 1;
         // While we know how to simulate a threat, skip it.
         while !self.is_turn_end() {
-            if !self.threats[self.turn - 1].simulate(self.tick, &self.pos, &self.grid) {
+            if !self.threats[self.turn - 1].simulate(
+                self.tick, &self.pos, &self.grid) {
                 break;
             }
             self.turn += 1;
@@ -377,7 +413,6 @@ mod tests {
             ]),
             alive: true,
             pos: Pos { x: 1, y: 1 },
-            spawn_pos: Pos { x: 1, y: 1 },
             tick: 1,
             threats,
         }
