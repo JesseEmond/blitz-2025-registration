@@ -52,4 +52,9 @@ one tick per line.
 
 ### Replay local games
 
-TODO: Implement & document here.
+This is useful to exercise our simulation logic, ensure it matches the server's.
+
+```
+cd bot
+./replay.sh games/1.jsonl
+```

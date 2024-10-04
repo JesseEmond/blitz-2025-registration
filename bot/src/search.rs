@@ -110,4 +110,10 @@ impl Bot {
         self.state.simulate_tick(picked);
         picked
     }
+
+    /// Update state based on 'game', then apply given move.
+    pub fn simulate(&mut self, game: &Game, action: Option<Move>) {
+        self.state.update_observed_state(game);
+        self.state.simulate_tick(action);
+    }
 }

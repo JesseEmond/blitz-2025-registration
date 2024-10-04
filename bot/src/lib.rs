@@ -21,6 +21,18 @@ pub enum Action {
     Right,
 }
 
+impl Action {
+    fn to_move(&self) -> Option<Move> {
+        match self {
+            Action::Idle => None,
+            Action::Up => Some(Move::Up),
+            Action::Down => Some(Move::Down),
+            Action::Left => Some(Move::Left),
+            Action::Right => Some(Move::Right),
+        }
+    }
+}
+
 #[pyclass]
 #[derive(Clone)]
 pub enum GameDirection {
@@ -159,6 +171,12 @@ impl DevnullBot {
 
     pub fn pick_action(&mut self, game_state: &GameState) -> PyResult<Action> {
         Ok(from_move(self.bot.pick_move(&game_state.to_game())))
+    }
+
+    /// Replay an action after seeing a state. For offline replay.
+    pub fn simulate(&mut self, game_state: &GameState, action: Action) -> PyResult<()> {
+        self.bot.simulate(&game_state.to_game(), action.to_move());
+        Ok(())
     }
 }
 
