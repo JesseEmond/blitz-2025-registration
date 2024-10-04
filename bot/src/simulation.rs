@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::sync::Arc;
+
 use strum_macros::EnumIter;
 use strum::IntoEnumIterator;
 use once_cell::sync::Lazy;
@@ -64,7 +66,7 @@ impl Move {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug, Eq, Hash)]
 pub struct Pos {
     pub x: i16,
     pub y: i16,
@@ -121,6 +123,56 @@ impl Grid {
     }
 }
 
+fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
+    // Implemented to match:
+    // https://github.com/JesseEmond/blitz-2025-registration/blob/5bbcd84d0a74256ce00c82f9766528b2ac9efbba/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/aggressive.decomp.js#L17
+    // TODO: optimize (with same behavior) if bottleneck
+    // TODO: can early exit if found target
+    let mut cost = HashMap::new();
+    let mut came_from: HashMap<Pos, Pos> = HashMap::new();
+    let mut unseen = Vec::new();
+    // TODO: can pre-compute empty tiles
+    for x in 0..grid.width {
+        for y in 0..grid.height {
+            let pos = Pos { x: x as i16, y: y as i16 };
+            if grid.is_empty(&pos) {
+                unseen.push(pos);
+                cost.insert(pos, 9999999);
+            }
+        }
+    }
+    cost.insert(*from, 0);
+    while !unseen.is_empty() {
+        unseen.sort_by(|a, b| cost[b].cmp(&cost[a]));
+        let pos = unseen.pop().unwrap();
+        // Match order from JS
+        for d in [Move::Left, Move::Right, Move::Up, Move::Down] {
+            let next_pos = pos.moved(d);
+            if !grid.is_empty(&next_pos) {
+                continue;
+            }
+            let current_cost = cost[&next_pos];
+            let next_cost = cost[&pos] + 1;
+            if next_cost < current_cost {
+                cost.insert(next_pos, next_cost);
+                came_from.insert(next_pos, pos);
+            }
+        }
+    }
+    let mut path = Vec::new();
+    let mut node = to;
+    loop {
+        if let Some(parent) = came_from.get(node) {
+            path.push(*node);
+            node = parent;
+        } else {
+            break;
+        }
+    }
+    path.reverse();
+    path
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct Threat {
     pub pos: Pos,
@@ -141,7 +193,7 @@ impl Threat {
     fn can_predict(style: Style) -> bool {
         // TODO: Remove this fn once all are supported!
         match style {
-            Style::Goldfish | Style::Bull | Style::Deer => true,
+            Style::Goldfish | Style::Bull | Style::Deer | Style::Shark => true,
             _ => false,
         }
     }
@@ -186,6 +238,24 @@ impl Threat {
                     Some(directions.min_by_key(|&d| {
                         self.pos.moved(d).dist_squared(target)
                     }).unwrap())
+                }
+            },
+            Style::Shark => {
+                // See aggressive.js
+                let path = get_aggressive_path(&grid, &self.pos, &player);
+                assert!(!path.is_empty());
+                let next = path[0];
+                assert!(next != self.pos);
+                assert!(self.pos.manhattan_dist(&next) <= 1);
+                if next.x > self.pos.x {
+                    Some(Move::Right)
+                } else if next.x < self.pos.x {
+                    Some(Move::Left)
+                } else if next.y < self.pos.y {
+                    Some(Move::Up)
+                } else {
+                    assert!(next.y > self.pos.y);
+                    Some(Move::Down)
                 }
             },
             _ => None,  // TODO: implement other styles

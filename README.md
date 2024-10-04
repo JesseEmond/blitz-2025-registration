@@ -58,3 +58,5 @@ This is useful to exercise our simulation logic, ensure it matches the server's.
 cd bot
 ./replay.sh games/1.jsonl
 ```
+
+To replay all `*.jsonl` files in `games/`, you can use the utility `./replay_all.sh`.
