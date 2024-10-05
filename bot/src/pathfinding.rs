@@ -246,7 +246,43 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
         }
     }
     path.reverse();
+    assert_eq!(path, pathfinder_state.get_path(grid, to));
     path
 }
 
-// TODO: Unit test that slow pathfinder & fast pathfinders return the same nodes
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::grid::make_grid;
+
+    #[test]
+    fn test_slow_pathfinder_same_path_as_get_aggressive_path() {
+        let grid = make_grid(vec![
+            "######################",
+            "#                    #",
+            "# ########  ######## #",
+            "# #                # #",
+            "# #### ###  # #### # #",
+            "# ####      # #### # #",
+            "# #### ###  # #### # #",
+            "#           # #      #",
+            "# #### ###  # # #### #",
+            "# #  #      # # #  # #",
+            "# #    ###  # #    # #",
+            "# #                # #",
+            "# ########  ######## #",
+            "#                    #",
+            "######################",
+        ]);
+        let from = Pos { x: 5, y: 1 };
+        let to = Pos { x: 18, y: 13 };
+
+        let mut pathfinder = SlowAggressivePathfinder::new(&grid);
+        let path = pathfinder.pathfind(&grid, &from, &Some(to))
+            .get_path(&grid, &to);
+        assert_eq!(path, get_aggressive_path(&grid, &from, &to));
+    }
+
+    // TODO: unit test that slow pathfinder's final path == fast one
+    // TODO: unit test that fast pathfinder per-step has same outputs as slow
+}
