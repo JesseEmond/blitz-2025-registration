@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::grid::{EmptyTile, Grid, Pos};
+use crate::grid::{EmptyTile, Grid, Move, Pos};
 
 pub type Cost = usize;
 /// Impossible cost in our game.
@@ -34,7 +34,6 @@ impl PathfinderState {
 
     /// Get cost of going to 'to', from our start position.
     /// Only valid after using a 'Pathfinder'.
-    #[allow(dead_code)] 
     pub fn get_cost(&self, grid: &Grid, to: &Pos) -> Cost {
         self.cost[grid.empty_tile_idx(to)]
     }
@@ -218,6 +217,33 @@ impl PathfindingGrid {
             pathfinding_states.push(pathfinder.pathfind(&grid, &pos, &None));
         }
         Self { grid, pathfinding_states }
+    }
+
+    /// Get path following the logic of utils/pathfinding.js
+    /// Reference:
+    /// https://github.com/JesseEmond/blitz-2025-registration/blob/bb2ec9d263ebeb65e09230506d55a25111a2f48b/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/utils/pathfinding.decomp.js#L411-L419
+    pub fn get_path(&self, from: &Pos, to: &Pos) -> Vec<Pos> {
+        let to_idx = self.grid.empty_tile_idx(to);
+        let to_state = &self.pathfinding_states[to_idx];
+        let mut cost = to_state.get_cost(&self.grid, from);
+        let mut path = Vec::new();
+        let mut current = from;
+        while cost > 0 {
+            // Note: following order from 'getNeighbors':
+            // https://github.com/JesseEmond/blitz-2025-registration/blob/bb2ec9d263ebeb65e09230506d55a25111a2f48b/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/utils/pathfinding.decomp.js#L216
+            for d in [Move::Left, Move::Right, Move::Up, Move::Down] {
+                let next = current.moved(d);
+                if !self.grid.is_empty(&next) {
+                    continue;
+                }
+                if to_state.get_cost(&self.grid, &next) == cost - 1 {
+                    path.push(next);
+                    break;
+                }
+            }
+            cost -= 1;
+        }
+        path
     }
 }
 
