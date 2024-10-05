@@ -207,91 +207,10 @@ impl Pathfinder for FastAggressivePathfinder {
     }
 }
 
-// TODO: switch to use pathfinder
 pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
-    // To understand this optimized implementaion, note that the JS is
-    // effectively doing:
-    //   cost = {p: Infinity for p in empty_tiles}
-    //   unseen = list(empty_tiles)
-    //   while unseen:
-    //     unseen.sort(function(a,b) { cost[b] - cost[a] })
-    //     pos = unseen.pop()
-    //     [...]
-    // This sort for every frontier pop is very expensive.
-    // When reading the code below, remember that we need to replicate the above
-    // with the following properties:
-    // - sort in modern JS is stable
-    // - sort is called at the start of the loop, so any newly added nodes in
-    //   the same loop will keep their initial relative order from 'empty_tiles'
-    //   instead of being in the order seen
-    const HIGH_COST: usize = 9999999;
-    let mut cost = vec![HIGH_COST; grid.empty_tiles.len()];
-    let mut came_from = vec![None; grid.empty_tiles.len()];
-    // Frontier is nodes with cost N, next_frontier is nodes with cost N+1.
-    let mut frontier = VecDeque::new();
-    let mut next_frontier = VecDeque::new();
-    let mut frontier_cost = 0;
-    cost[grid.empty_tile_idx(from)] = 0;
-    frontier.push_front(*from);
-    while !frontier.is_empty() || !next_frontier.is_empty() {
-        if frontier.is_empty() {
-            std::mem::swap(&mut frontier, &mut next_frontier);
-            frontier_cost += 1;
-        }
-        let pos = frontier.pop_back().unwrap();
-        let pos_idx = grid.empty_tile_idx(&pos);
-        if pos == *to {
-            // Early exit if we found the target
-            break;
-        }
-        let mut frontier_adds = Vec::new();
-        let mut next_frontier_adds = Vec::new();
-        // Note: order is irrelevant, since we enforce order to match the JS
-        // behavior below anyway.
-        for d in Move::iter() {
-            let next_pos = pos.moved(d);
-            if !grid.is_empty(&next_pos) { continue; }
-            let next_pos_idx = grid.empty_tile_idx(&next_pos);
-            let current_cost = cost[next_pos_idx];
-            let new_cost = cost[grid.empty_tile_idx(&pos)] + 1;
-            if current_cost == HIGH_COST {
-                cost[next_pos_idx] = new_cost;
-                came_from[next_pos_idx] = Some(pos);
-                assert!(new_cost == frontier_cost || new_cost == frontier_cost + 1);
-                if new_cost == frontier_cost {
-                    frontier_adds.push(next_pos);
-                } else {
-                    next_frontier_adds.push(next_pos);
-                }
-            } else {
-                assert!(new_cost >= current_cost);
-            }
-        }
-        // Because the JS code only sorts on new 'while' iterations, multiple
-        // positions discovered on the same iteration will keep their same
-        // initial ordering in the array, which comes from the 'empty_tiles'
-        // creation order.
-        frontier_adds.sort_by_key(|p| grid.empty_tile_idx(p));
-        next_frontier_adds.sort_by_key(|p| grid.empty_tile_idx(p));
-        // New additions move to the front. When the JS version sorts, all the
-        // previously unseen positions are to the left of seen ones (from prev
-        // Infinity cost value), and will preserve this relative order to
-        // existing frontier items (from a stable sort).
-        frontier_adds.into_iter().rev().for_each(|p| frontier.push_front(p));
-        next_frontier_adds.into_iter().rev().for_each(|p| next_frontier.push_front(p));
-    }
-    let mut path = Vec::new();
-    let mut node = *to;
-    loop {
-        if let Some(parent) = came_from[grid.empty_tile_idx(&node)] {
-            path.push(node);
-            node = parent;
-        } else {
-            break;
-        }
-    }
-    path.reverse();
-    path
+    let mut pathfinder = FastAggressivePathfinder::new(grid);
+    let state = pathfinder.pathfind(grid, from, &Some(*to));
+    state.get_path(grid, to)
 }
 
 #[cfg(test)]
