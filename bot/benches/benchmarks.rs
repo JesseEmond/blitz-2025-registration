@@ -4,26 +4,32 @@ use pprof::criterion::{Output, PProfProfiler};
 use devnull_bot::simulation::{get_aggressive_path, make_grid, Pos};
 
 pub fn criterion_benchmark(c: &mut Criterion) {
-    c.bench_function("get_aggressive_path 22x15", |b| {
-        let grid = make_grid(vec![
-            "######################",
-            "#                    #",
-            "# ########  ######## #",
-            "# #                # #",
-            "# #### ###  # #### # #",
-            "# ####      # #### # #",
-            "# #### ###  # #### # #",
-            "#           # #      #",
-            "# #### ###  # # #### #",
-            "# #  #      # # #  # #",
-            "# #    ###  # #    # #",
-            "# #                # #",
-            "# ########  ######## #",
-            "#                    #",
-            "######################",
-        ]);
+    let grid = make_grid(vec![
+        "######################",
+        "#                    #",
+        "# ########  ######## #",
+        "# #                # #",
+        "# #### ###  # #### # #",
+        "# ####      # #### # #",
+        "# #### ###  # #### # #",
+        "#           # #      #",
+        "# #### ###  # # #### #",
+        "# #  #      # # #  # #",
+        "# #    ###  # #    # #",
+        "# #                # #",
+        "# ########  ######## #",
+        "#                    #",
+        "######################",
+    ]);
+    c.bench_function("get_aggressive_path 22x15 far", |b| {
         b.iter(|| get_aggressive_path(
-                black_box(&grid), &Pos { x: 5, y: 1 }, &Pos { x: 18, y: 13 }));
+                black_box(&grid), black_box(&Pos { x: 5, y: 1 }),
+                black_box(&Pos { x: 18, y: 13 })));
+    });
+    c.bench_function("get_aggressive_path 22x15 close", |b| {
+        b.iter(|| get_aggressive_path(
+                black_box(&grid), black_box(&Pos { x: 5, y: 1 }),
+                black_box(&Pos { x: 9, y: 1 })));
     });
 }
 

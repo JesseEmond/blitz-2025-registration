@@ -184,7 +184,6 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
     // - sort is called at the start of the loop, so any newly added nodes in
     //   the same loop will keep their initial relative order from 'empty_tiles'
     //   instead of being in the order seen
-    // TODO: can early exit if found target
     // TODO: Refactor to a struct, impl old slower method, unit test verifying
     //       that the behavior is the same.
     const HIGH_COST: usize = 9999999;
@@ -202,6 +201,10 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
             frontier_cost += 1;
         }
         let pos = frontier.pop_back().unwrap();
+        if pos == *to {
+            // Early exit if we found the target
+            break;
+        }
         let mut frontier_adds = Vec::new();
         let mut next_frontier_adds = Vec::new();
         // Note: order is irrelevant, since we enforce order to match the JS
