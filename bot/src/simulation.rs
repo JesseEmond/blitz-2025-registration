@@ -3,7 +3,8 @@ use std::sync::Arc;
 use strum_macros::EnumIter;
 use once_cell::sync::Lazy;
 
-use crate::grid::{get_aggressive_path, Grid, Move, Pos};
+use crate::grid::{Grid, Move, Pos};
+use crate::pathfinding::get_aggressive_path;
 
 const MAX_TICKS: usize = 2000;
 
