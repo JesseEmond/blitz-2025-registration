@@ -145,45 +145,47 @@ impl Pathfinder for SlowAggressivePathfinder {
 ///   instead of being in the order seen
 struct FastAggressivePathfinder {
     frontier: VecDeque<Node>,
-    /// Nodes with cost of nodes in 'frontier', + 1.
-    next_frontier: VecDeque<Node>,
+    /// Nodes at the head of 'frontier' have this cost.
     frontier_cost: Cost,
 
     // See 'commit' for why we need to buffer queues before committing them.
-    frontier_adds: Vec<Node>,
-    next_frontier_adds: Vec<Node>,
+    frontier_buffer: Vec<Node>,
+    next_frontier_buffer: Vec<Node>,
 }
 
 impl FastAggressivePathfinder {
     fn new(grid: &Grid) -> Self {
         Self {
             frontier: VecDeque::new(),
-            next_frontier: VecDeque::new(),
             frontier_cost: 0,
-            frontier_adds: Vec::new(),
-            next_frontier_adds: Vec::new(),
+            frontier_buffer: Vec::new(),
+            next_frontier_buffer: Vec::new(),
         }
     }
 }
 
 impl Pathfinder for FastAggressivePathfinder {
     fn next_node(&mut self, state: &PathfinderState) -> Option<Node> {
-        assert!(self.frontier_adds.is_empty());
-        assert!(self.next_frontier_adds.is_empty());
-        if self.frontier.is_empty() {
-            std::mem::swap(&mut self.frontier, &mut self.next_frontier);
-            self.frontier_cost += 1;
+        // Buffers should have been cleared in 'commit'
+        assert!(self.frontier_buffer.is_empty());
+        assert!(self.next_frontier_buffer.is_empty());
+        // TODO: impl early exit as filter
+        let node = self.frontier.pop_back();
+        if let Some(node) = node {
+            if state.cost[node] > self.frontier_cost {
+                self.frontier_cost += 1;
+                assert_eq!(state.cost[node], self.frontier_cost);
+            }
         }
-        // TODO: impl early exit
-        self.frontier.pop_back()
+        node
     }
 
     fn queue(&mut self, state: &PathfinderState, next: Node, cost: Cost) {
         assert!(cost == self.frontier_cost || cost == self.frontier_cost + 1);
         if cost == self.frontier_cost {
-            self.frontier_adds.push(next);
+            self.frontier_buffer.push(next);
         } else {
-            self.next_frontier_adds.push(next);
+            self.next_frontier_buffer.push(next);
         }
     }
 
@@ -193,14 +195,14 @@ impl Pathfinder for FastAggressivePathfinder {
         // initial ordering in the array, which comes from the 'empty_tiles'
         // creation order (their index). We can sort by node index to replicate
         // this.
-        self.frontier_adds.sort();
-        self.next_frontier_adds.sort();
+        self.frontier_buffer.sort();
+        self.next_frontier_buffer.sort();
         // New additions move to the front. When the JS version sorts, all the
         // previously unseen positions are to the left of seen ones (from prev
         // Infinity cost value), and will preserve this relative order to
         // existing frontier items (from a stable sort).
-        self.frontier_adds.drain(..).rev().for_each(|n| self.frontier.push_front(n));
-        self.next_frontier_adds.drain(..).rev().for_each(|n| self.next_frontier.push_front(n));
+        self.frontier_buffer.drain(..).rev().for_each(|n| self.frontier.push_front(n));
+        self.next_frontier_buffer.drain(..).rev().for_each(|n| self.frontier.push_front(n));
     }
 }
 
@@ -223,7 +225,7 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
     //   instead of being in the order seen
     // TODO: remove checking logic once unit test enforces it
     let mut pathfinder_state = PathfinderState::new(grid, from, &Some(*to));
-    let mut pathfinder = SlowAggressivePathfinder::new(&grid);
+    let mut pathfinder = FastAggressivePathfinder::new(&grid);
     const HIGH_COST: usize = 9999999;
     let mut cost = vec![HIGH_COST; grid.empty_tiles.len()];
     let mut came_from = vec![None; grid.empty_tiles.len()];
