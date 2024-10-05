@@ -1,5 +1,6 @@
 use rand::seq::SliceRandom;
-use crate::simulation::{Game, Move, State};
+use crate::grid::Move;
+use crate::simulation::{Game, State};
 
 type Score = i32;
 

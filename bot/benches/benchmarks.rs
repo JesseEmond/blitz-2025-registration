@@ -1,7 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use pprof::criterion::{Output, PProfProfiler};
 
-use devnull_bot::simulation::{get_aggressive_path, make_grid, Pos};
+use devnull_bot::grid::{make_grid, Pos};
+use devnull_bot::simulation::{get_aggressive_path};
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     let grid = make_grid(vec![

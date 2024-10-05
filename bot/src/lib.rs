@@ -2,13 +2,15 @@
 /// A lot of duplication here, do this so that other parts of the Rust code can
 /// ignore that it can run inside Python.
 
+pub mod grid;
 pub mod search;
 pub mod simulation;
 
 use pyo3::prelude::*;
 
+use crate::grid::{Grid, Move, Pos};
 use crate::search::Bot;
-use crate::simulation::{Game, Grid, Move, Pos, State, Style, Threat};
+use crate::simulation::{Game, State, Style, Threat};
 
 #[pyclass]
 #[derive(Clone)]
