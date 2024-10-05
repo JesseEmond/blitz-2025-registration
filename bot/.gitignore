@@ -4,6 +4,10 @@ devnull.zip
 # Local games recorded
 games/*.jsonl
 
+# Profiling outputs
+perf.data
+flamegraph.svg
+
 # Python
 # Byte-compiled / optimized / DLL files
 __pycache__/
