@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use strum_macros::EnumIter;
@@ -140,6 +139,11 @@ impl Grid {
     fn on_grid(&self, pos: &Pos) -> bool {
         pos.x >= 0 && pos.x < self.width.into() && pos.y >= 0 && pos.y < self.height.into()
     }
+
+    fn empty_tile_idx(&self, pos: &Pos) -> usize {
+        assert!(self.is_empty(pos));
+        self.empty_tiles_lookup[pos.x as usize][pos.y as usize]
+    }
 }
 
 /// Helper to make 'tiles' from a [y][x] structure (matches visually) of
@@ -165,22 +169,13 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
     // https://github.com/JesseEmond/blitz-2025-registration/blob/5bbcd84d0a74256ce00c82f9766528b2ac9efbba/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/aggressive.decomp.js#L17
     // TODO: optimize (with same behavior) if bottleneck
     // TODO: can early exit if found target
-    let mut cost = HashMap::new();
-    let mut came_from: HashMap<Pos, Pos> = HashMap::new();
-    let mut unseen = Vec::new();
-    // TODO: can pre-compute empty tiles
-    for x in 0..grid.width {
-        for y in 0..grid.height {
-            let pos = Pos { x: x as i16, y: y as i16 };
-            if grid.is_empty(&pos) {
-                unseen.push(pos);
-                cost.insert(pos, 9999999);
-            }
-        }
-    }
-    cost.insert(*from, 0);
+    const HIGH_COST: usize = 9999999;
+    let mut cost = vec![HIGH_COST; grid.empty_tiles.len()];
+    let mut came_from = vec![None; grid.empty_tiles.len()];
+    let mut unseen = grid.empty_tiles.clone();
+    cost[grid.empty_tile_idx(from)] = 0;
     while !unseen.is_empty() {
-        unseen.sort_by(|a, b| cost[b].cmp(&cost[a]));
+        unseen.sort_by(|a, b| cost[grid.empty_tile_idx(b)].cmp(&cost[grid.empty_tile_idx(a)]));
         let pos = unseen.pop().unwrap();
         // Match order from JS
         for d in [Move::Left, Move::Right, Move::Up, Move::Down] {
@@ -188,19 +183,20 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
             if !grid.is_empty(&next_pos) {
                 continue;
             }
-            let current_cost = cost[&next_pos];
-            let next_cost = cost[&pos] + 1;
+            let next_pos_idx = grid.empty_tile_idx(&next_pos);
+            let current_cost = cost[next_pos_idx];
+            let next_cost = cost[grid.empty_tile_idx(&pos)] + 1;
             if next_cost < current_cost {
-                cost.insert(next_pos, next_cost);
-                came_from.insert(next_pos, pos);
+                cost[next_pos_idx] = next_cost;
+                came_from[next_pos_idx] = Some(pos);
             }
         }
     }
     let mut path = Vec::new();
-    let mut node = to;
+    let mut node = *to;
     loop {
-        if let Some(parent) = came_from.get(node) {
-            path.push(*node);
+        if let Some(parent) = came_from[grid.empty_tile_idx(&node)] {
+            path.push(node);
             node = parent;
         } else {
             break;
