@@ -1,11 +1,9 @@
-use std::collections::VecDeque;
 use std::sync::Arc;
 
-use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 use once_cell::sync::Lazy;
 
-use crate::grid::{Grid, Move, Pos};
+use crate::grid::{get_aggressive_path, Grid, Move, PathfindingGrid, Pos};
 
 const MAX_TICKS: usize = 2000;
 
@@ -49,97 +47,6 @@ pub enum Style {
     Hawk,
 }
 
-pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
-    // Implemented to match:
-    // https://github.com/JesseEmond/blitz-2025-registration/blob/5bbcd84d0a74256ce00c82f9766528b2ac9efbba/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/aggressive.decomp.js#L17
-    // To understand this optimized implementaion, note that the JS is
-    // effectively doing:
-    //   cost = {p: Infinity for p in empty_tiles}
-    //   unseen = list(empty_tiles)
-    //   while unseen:
-    //     unseen.sort(function(a,b) { cost[b] - cost[a] })
-    //     pos = unseen.pop()
-    //     [...]
-    // This sort for every frontier pop is very expensive.
-    // When reading the code below, remember that we need to replicate the above
-    // with the following properties:
-    // - sort in modern JS is stable
-    // - sort is called at the start of the loop, so any newly added nodes in
-    //   the same loop will keep their initial relative order from 'empty_tiles'
-    //   instead of being in the order seen
-    // TODO: Refactor to a struct, impl old slower method, unit test verifying
-    //       that the behavior is the same.
-    const HIGH_COST: usize = 9999999;
-    let mut cost = vec![HIGH_COST; grid.empty_tiles.len()];
-    let mut came_from = vec![None; grid.empty_tiles.len()];
-    // Frontier is nodes with cost N, next_frontier is nodes with cost N+1.
-    let mut frontier = VecDeque::new();
-    let mut next_frontier = VecDeque::new();
-    let mut frontier_cost = 0;
-    cost[grid.empty_tile_idx(from)] = 0;
-    frontier.push_front(*from);
-    while !frontier.is_empty() || !next_frontier.is_empty() {
-        if frontier.is_empty() {
-            std::mem::swap(&mut frontier, &mut next_frontier);
-            frontier_cost += 1;
-        }
-        let pos = frontier.pop_back().unwrap();
-        if pos == *to {
-            // Early exit if we found the target
-            break;
-        }
-        let mut frontier_adds = Vec::new();
-        let mut next_frontier_adds = Vec::new();
-        // Note: order is irrelevant, since we enforce order to match the JS
-        // behavior below anyway.
-        for d in Move::iter() {
-            let next_pos = pos.moved(d);
-            if !grid.is_empty(&next_pos) {
-                continue;
-            }
-            let next_pos_idx = grid.empty_tile_idx(&next_pos);
-            let current_cost = cost[next_pos_idx];
-            let new_cost = cost[grid.empty_tile_idx(&pos)] + 1;
-            if current_cost == HIGH_COST {
-                cost[next_pos_idx] = new_cost;
-                came_from[next_pos_idx] = Some(pos);
-                assert!(new_cost == frontier_cost || new_cost == frontier_cost + 1);
-                if new_cost == frontier_cost {
-                    frontier_adds.push(next_pos);
-                } else {
-                    next_frontier_adds.push(next_pos);
-                }
-            } else {
-                assert!(new_cost >= current_cost);
-            }
-        }
-        // Because the JS code only sorts on new 'while' iterations, multiple
-        // positions discovered on the same iteration will keep their same
-        // initial ordering in the array, which comes from the 'empty_tiles'
-        // creation order.
-        frontier_adds.sort_by_key(|p| grid.empty_tile_idx(p));
-        next_frontier_adds.sort_by_key(|p| grid.empty_tile_idx(p));
-        // New additions move to the front. When the JS version sorts, all the
-        // previously unseen positions are to the left of seen ones (from prev
-        // Infinity cost value), and will preserve this relative order to
-        // existing frontier items (from a stable sort).
-        frontier_adds.into_iter().rev().for_each(|p| frontier.push_front(p));
-        next_frontier_adds.into_iter().rev().for_each(|p| next_frontier.push_front(p));
-    }
-    let mut path = Vec::new();
-    let mut node = *to;
-    loop {
-        if let Some(parent) = came_from[grid.empty_tile_idx(&node)] {
-            path.push(node);
-            node = parent;
-        } else {
-            break;
-        }
-    }
-    path.reverse();
-    path
-}
-
 #[derive(Clone, PartialEq, Debug)]
 pub struct Threat {
     pub pos: Pos,
@@ -166,21 +73,21 @@ impl Threat {
     }
 
     /// Returns whether we know how to simulate this threat.
-    fn simulate(&mut self, tick: usize, player: &Pos, grid: &Grid) -> bool {
+    fn simulate(&mut self, tick: usize, player: &Pos, grid: &PathfindingGrid) -> bool {
         if !Self::moves_on_tick(tick) {
             return false;
         }
         let next_move = match self.style {
             Style::Goldfish => {
                 // See girouette.js
-                let directions = self.get_possible_directions(grid);
+                let directions = self.get_possible_directions(&grid.grid);
                 let o = self._next_rand() * directions.len() as f64;
                 let idx = o.floor();
                 Some(directions[idx as usize])
             },
             Style::Bull => {
                 // See straight_ahead_threat.js
-                let directions = self.get_possible_directions(grid);
+                let directions = self.get_possible_directions(&grid.grid);
                 if directions.contains(&self.dir) {
                     Some(self.dir)
                 } else {
@@ -191,7 +98,7 @@ impl Threat {
             },
             Style::Deer => {
                 // See tse_le_fantome_orange_dans_pacman.js
-                let directions = self.get_possible_directions(grid);
+                let directions = self.get_possible_directions(&grid.grid);
                 if directions.len() == 1 {
                     Some(directions[0])
                 } else {
@@ -284,7 +191,7 @@ pub struct Game {
 
 #[derive(Clone)]
 pub struct State {
-    pub grid: Arc<Grid>,
+    pub grid: Arc<PathfindingGrid>,
     pub tick: usize,
     pub pos: Pos,
     prev_pos: Pos,
@@ -299,7 +206,7 @@ impl State {
         // https://github.com/JesseEmond/blitz-2025-registration/blob/dbe84ed80ebc441d071d5e6eb0d6a476d580a9e2/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L467
         let prev_pos = Pos { x: -1, y: -1 };
         let mut state = State {
-            grid: Arc::new(game.grid),
+            grid: Arc::new(PathfindingGrid::new(game.grid)),
             tick: game.tick,
             pos: game.pos,
             prev_pos,
@@ -314,9 +221,9 @@ impl State {
     pub fn generate_moves(&self) -> Vec<Option<Move>> {
         let mut moves = Vec::new();
         if self.is_player_turn() {
-            moves.extend(self.grid.available_moves(&self.pos).iter().map(|&m| Some(m)));
+            moves.extend(self.grid.grid.available_moves(&self.pos).iter().map(|&m| Some(m)));
         } else {
-            moves.extend(self.grid.available_moves(&self.threat_turn().pos).iter().map(|&m| Some(m)));
+            moves.extend(self.grid.grid.available_moves(&self.threat_turn().pos).iter().map(|&m| Some(m)));
         }
         moves.push(None);
         moves
@@ -452,6 +359,7 @@ fn debug_print(grid: &Grid, highlights: Vec<(&Pos, char)>) {
 
 #[cfg(test)]
 mod tests {
+    use strum::IntoEnumIterator;
     use super::*;
     use super::super::grid::make_grid;
 
