@@ -96,7 +96,8 @@ impl Threat {
     fn can_predict(style: Style) -> bool {
         // TODO: Remove this fn once all are supported!
         match style {
-            Style::Goldfish | Style::Bull | Style::Deer | Style::Shark => true,
+            Style::Goldfish | Style::Bull | Style::Deer | Style::Shark
+                | Style::Owl => true,
             _ => false,
         }
     }
@@ -162,17 +163,19 @@ impl Threat {
                 follow_path(&self.pos, &path)
             },
             Style::Owl => {
-                // TODO: Re-enable
-                // if tick % 60 < 10 {
-                //     // Note: _lastTargetSeenPosition reads direction from
-                //     // character.position, so it is the current position.
-                //     self.pos_storage = Some(*player);
-                // }
-                // self.pos_storage.and_then(|target| {
-                //     let path = grid.get_path(&self.pos, &target);
-                //     follow_path(&self.pos, &path)
-                // })
-                None
+                // Not fully sure why, but this is looking at the previous tick.
+                // This does not align with my reading of the code, but appears
+                // to be the case when testing.
+                let tick = tick - 1;
+                if tick % 60 < 10 {
+                    // Note: _lastTargetSeenPosition reads direction from
+                    // character.position, so it is the current position.
+                    self.pos_storage = Some(*player);
+                }
+                self.pos_storage.and_then(|target| {
+                    let path = grid.get_path(&self.pos, &target);
+                    follow_path(&self.pos, &path)
+                })
             },
             _ => {
                 assert!(!Threat::can_predict(self.style));
@@ -385,7 +388,7 @@ impl State {
 mod tests {
     use strum::IntoEnumIterator;
     use super::*;
-    use super::super::grid::{debug_print, make_grid};
+    use super::super::grid::{make_grid};
 
     fn make_test_game() -> Game {
         let threats = Style::iter().filter(|&s| Threat::can_predict(s))
@@ -448,20 +451,13 @@ mod tests {
         let player = Pos { x: 20, y: 1 };
         let prev_player = player;  // not important
         let owl = Pos { x: 10, y: 12 };
-        let tick = 60;
         // Direction & seed not important.
         let mut threat = Threat::new(owl, Style::Owl, Move::Up);
-        let path = grid.get_path(&owl, &player);
-        // TODO: remove
-        let to_idx = grid.grid.empty_tile_idx(&player);
-        let to_state = &grid.pathfinding_states[to_idx];
-        println!("Cost of player to owl: {}",
-                 to_state.get_cost(&grid.grid, &owl));
-        println!("Cost of player to owl up: {}",
-                 to_state.get_cost(&grid.grid, &owl.moved(Move::Up)));
-        println!("Cost of player to owl right: {}",
-                 to_state.get_cost(&grid.grid, &owl.moved(Move::Right)));
-        debug_print(&grid.grid, vec![(&player, 'P'), (&owl, 'O'), (&path[0], '.')]);
+        // On tick 5, we saw player at (7, 7)
+        let old_player_seen = Pos { x: 7, y: 7 };
+        threat.next_move(5, &old_player_seen, &old_player_seen, &grid);
+        // Then saw player on a new tick
+        let tick = 60;
         assert_eq!(threat.next_move(tick, &player, &prev_player, &grid),
                    Some(Move::Up));
     }

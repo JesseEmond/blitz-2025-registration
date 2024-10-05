@@ -80,6 +80,7 @@ impl GamePosition {
 }
 
 impl GamePosition {
+    #[allow(dead_code)] 
     fn from_pos(pos: &Pos) -> Self {
         Self::new(pos.x as i32, pos.y as i32)
     }

@@ -12,8 +12,7 @@ pub type Path = Vec<Pos>;
 type Node = EmptyTile;
 
 /// State of pathfinding from a given start point.
-// TODO: remove pub
-pub struct PathfinderState {
+struct PathfinderState {
     /// For a given 'empty_tiles' index, its shortest distance to a start point.
     cost: Vec<Cost>,
     /// For a given 'empty_tiles' index, previous pos on shortest path.
@@ -205,8 +204,7 @@ impl Pathfinder for FastAggressivePathfinder {
 pub struct PathfindingGrid {
     pub grid: Grid,
     /// Per-empty tile precomputed pathfinding information.
-    // TODO: remove pub
-    pub pathfinding_states: Vec<PathfinderState>,
+    pathfinding_states: Vec<PathfinderState>,
 }
 
 impl PathfindingGrid {
