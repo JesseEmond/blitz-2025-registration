@@ -51,5 +51,7 @@ if __name__ == "__main__":
         print("Usage: replayer.py games/1.jsonl")
         exit(1)
     jsonl_path = sys.argv[1]
+    print("Loading ticks...")
     ticks = load_ticks(jsonl_path)
+    print("Replaying ticks...")
     replay(ticks)
