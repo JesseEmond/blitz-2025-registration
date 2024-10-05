@@ -123,7 +123,25 @@ impl Grid {
     }
 }
 
-fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
+/// Helper to make 'tiles' from a [y][x] structure (matches visually) of
+/// '#'s and ' 's.
+pub fn make_grid(rows: Vec<&str>) -> Grid {
+    let width = if rows.is_empty() { 0 } else { rows[0].len() };
+    let height = rows.len();
+    let mut tiles = vec![vec![false; height]; width];
+    for x in 0..width {
+        for y in 0..height {
+            let c = rows[y].as_bytes()[x];
+            assert!(c == b' ' || c == b'#',
+                    "make_grid expects rows with spaces and #s: '{}'", c);
+            tiles[x][y] = c == b'#';
+        }
+    }
+    Grid { tiles, width: width as u8, height: height as u8 }
+}
+    
+
+pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
     // Implemented to match:
     // https://github.com/JesseEmond/blitz-2025-registration/blob/5bbcd84d0a74256ce00c82f9766528b2ac9efbba/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/aggressive.decomp.js#L17
     // TODO: optimize (with same behavior) if bottleneck
@@ -481,24 +499,6 @@ fn debug_print(grid: &Grid, highlights: Vec<(&Pos, char)>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Helper to make 'tiles' from a [y][x] structure (matches visually) of
-    /// '#'s and ' 's.
-    fn make_grid(rows: Vec<&str>) -> Grid {
-        let width = if rows.is_empty() { 0 } else { rows[0].len() };
-        let height = rows.len();
-        let mut tiles = vec![vec![false; height]; width];
-        for x in 0..width {
-            for y in 0..height {
-                let c = rows[y].as_bytes()[x];
-                assert!(c == b' ' || c == b'#',
-                        "make_grid expects rows with spaces and #s: '{}'", c);
-                tiles[x][y] = c == b'#';
-            }
-        }
-        Grid { tiles, width: width as u8, height: height as u8 }
-    }
-    
 
     fn make_test_game() -> Game {
         let threats = Style::iter().filter(|&s| Threat::can_predict(s))
