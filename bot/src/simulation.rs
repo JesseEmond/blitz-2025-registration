@@ -105,9 +105,28 @@ pub struct Grid {
     pub height: u8,
     /// Dims: [x][y], true for walls
     pub tiles: Vec<Vec<bool>>,
+    pub empty_tiles: Vec<Pos>,
+    /// At [x][y], index in 'empty_tiles' (only valid for empty tiles).
+    pub empty_tiles_lookup: Vec<Vec<usize>>,
 }
 
 impl Grid {
+    pub fn new(width: u8, height: u8, tiles: Vec<Vec<bool>>) -> Self {
+        let mut empty_tiles = Vec::new();
+        let mut empty_tiles_lookup = vec![vec![usize::MAX; height as usize];
+                                          width as usize];
+        for x in 0..(width as usize) {
+            for y in 0..(height as usize) {
+                if !tiles[x][y] {
+                    let idx = empty_tiles.len();
+                    empty_tiles.push(Pos { x: x as i16, y: y as i16 });
+                    empty_tiles_lookup[x][y] = idx;
+                }
+            }
+        }
+        Self { width, height, tiles, empty_tiles, empty_tiles_lookup }
+    }
+
     fn available_moves(&self, from: &Pos) -> Vec<Move> {
         Move::iter()
             .filter(|&m| self.is_empty(&from.moved(m)))
@@ -137,7 +156,7 @@ pub fn make_grid(rows: Vec<&str>) -> Grid {
             tiles[x][y] = c == b'#';
         }
     }
-    Grid { tiles, width: width as u8, height: height as u8 }
+    Grid::new(width as u8, height as u8, tiles)
 }
     
 
@@ -261,32 +280,37 @@ impl Threat {
             Style::Shark => {
                 // See aggressive.js
                 let path = get_aggressive_path(&grid, &self.pos, &player);
-                assert!(!path.is_empty());
-                let next = path[0];
-                assert!(next != self.pos);
-                assert!(self.pos.manhattan_dist(&next) <= 1);
-                if next.x > self.pos.x {
-                    Some(Move::Right)
-                } else if next.x < self.pos.x {
-                    Some(Move::Left)
-                } else if next.y < self.pos.y {
-                    Some(Move::Up)
+                if !path.is_empty() {
+                    let next = path[0];
+                    assert!(next != self.pos);
+                    assert!(self.pos.manhattan_dist(&next) <= 1);
+                    if next.x > self.pos.x {
+                        Some(Move::Right)
+                    } else if next.x < self.pos.x {
+                        Some(Move::Left)
+                    } else if next.y < self.pos.y {
+                        Some(Move::Up)
+                    } else {
+                        assert!(next.y > self.pos.y);
+                        Some(Move::Down)
+                    }
                 } else {
-                    assert!(next.y > self.pos.y);
-                    Some(Move::Down)
+                    None
                 }
             },
-            _ => None,  // TODO: implement other styles
+            _ => {
+                assert!(!Threat::can_predict(self.style));
+                None  // TODO: implement other styles
+            },
         };
         if let Some(m) = next_move {
             assert!(Threat::can_predict(self.style));
             self.pos = self.pos.moved(m);
             self.dir = m;
-        } else {
-            assert!(!Threat::can_predict(self.style));
         }
         // TODO: remove return once we have 100% predictions
-        !next_move.is_none()
+        // If we can predict it, we have enforced above that we have handled it.
+        Threat::can_predict(self.style)
     }
 
     fn move_every_n_ticks(tick: usize) -> usize {
