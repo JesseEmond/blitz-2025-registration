@@ -13,7 +13,7 @@ class Bot:
         self.bot = None
 
     def on_first_tick(self, game_message: TeamGameState) -> None:
-        state = rust_interop.create_rust_game_state(game_message)
+        state = rust_interop.to_rust_game_state(game_message)
         self.bot = devnull_bot.DevnullBot(state)
         self.initialized = True
 
@@ -22,9 +22,9 @@ class Bot:
         if not self.initialized:
             self.on_first_tick(game_message)
         actions = []
-        state = rust_interop.create_rust_game_state(game_message)
+        state = rust_interop.to_rust_game_state(game_message)
         action = self.bot.pick_action(state)
-        direction = rust_interop.rust_action_to_action(action)
+        direction = rust_interop.from_rust_action(action)
         if direction is not None:
             actions.append(direction_to_action(direction))
         end_time = time.time()

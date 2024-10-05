@@ -147,7 +147,7 @@ pub fn make_grid(rows: Vec<&str>) -> Grid {
 }
 
 #[allow(dead_code)] 
-fn debug_print(grid: &Grid, highlights: Vec<(&Pos, char)>) {
+pub fn debug_print(grid: &Grid, highlights: Vec<(&Pos, char)>) {
     for y in 0..(grid.height as i16) {
         for x in 0..(grid.width as i16) {
             let pos = Pos { x, y };

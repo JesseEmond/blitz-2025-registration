@@ -1,6 +1,6 @@
 use rand::seq::SliceRandom;
-use crate::grid::Move;
-use crate::simulation::{Game, State};
+use crate::grid::{Move, Pos};
+use crate::simulation::{Game, SimulationAction, State};
 
 type Score = i32;
 
@@ -108,13 +108,19 @@ impl Bot {
         self.state.update_observed_state(game);
         let strategy = MinimaxSearch { max_depth: 9 };
         let picked = strategy.choose_move(&self.state, &ThreatsAreFarEval{});
-        self.state.simulate_tick(picked);
+        self.state.simulate_tick(SimulationAction::Move { direction: picked });
         picked
     }
 
     /// Update state based on 'game', then apply given move.
-    pub fn simulate(&mut self, game: &Game, action: Option<Move>) {
+    pub fn simulate(&mut self, game: &Game, direction: Option<Move>) {
         self.state.update_observed_state(game);
-        self.state.simulate_tick(action);
+        self.state.simulate_tick(SimulationAction::Move { direction });
+    }
+
+    /// Update state based on 'game', then apply given MoveTo action.
+    pub fn simulate_move_to(&mut self, game: &Game, position: &Pos) {
+        self.state.update_observed_state(game);
+        self.state.simulate_tick(SimulationAction::MoveTo { position: *position });
     }
 }

@@ -12,7 +12,8 @@ pub type Path = Vec<Pos>;
 type Node = EmptyTile;
 
 /// State of pathfinding from a given start point.
-struct PathfinderState {
+// TODO: remove pub
+pub struct PathfinderState {
     /// For a given 'empty_tiles' index, its shortest distance to a start point.
     cost: Vec<Cost>,
     /// For a given 'empty_tiles' index, previous pos on shortest path.
@@ -204,7 +205,8 @@ impl Pathfinder for FastAggressivePathfinder {
 pub struct PathfindingGrid {
     pub grid: Grid,
     /// Per-empty tile precomputed pathfinding information.
-    pathfinding_states: Vec<PathfinderState>,
+    // TODO: remove pub
+    pub pathfinding_states: Vec<PathfinderState>,
 }
 
 impl PathfindingGrid {
@@ -226,21 +228,22 @@ impl PathfindingGrid {
         let to_idx = self.grid.empty_tile_idx(to);
         let to_state = &self.pathfinding_states[to_idx];
         let mut cost = to_state.get_cost(&self.grid, from);
+        if cost == COST_INFINITY {
+            return Vec::new();
+        }
         let mut path = Vec::new();
-        let mut current = from;
+        let mut current = *from;
         while cost > 0 {
-            // Note: following order from 'getNeighbors':
+            // Note: following order from 'getNeighbours':
             // https://github.com/JesseEmond/blitz-2025-registration/blob/bb2ec9d263ebeb65e09230506d55a25111a2f48b/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/utils/pathfinding.decomp.js#L216
-            for d in [Move::Left, Move::Right, Move::Up, Move::Down] {
-                let next = current.moved(d);
-                if !self.grid.is_empty(&next) {
-                    continue;
-                }
-                if to_state.get_cost(&self.grid, &next) == cost - 1 {
-                    path.push(next);
-                    break;
-                }
-            }
+            let dir = [Move::Left, Move::Right, Move::Up, Move::Down].into_iter()
+                .filter(|&d| {
+                    let next = current.moved(d);
+                    self.grid.is_empty(&next) && to_state.get_cost(&self.grid, &next) == cost - 1
+                })
+                .next().expect("no valid dir");
+            current = current.moved(dir);
+            path.push(current);
             cost -= 1;
         }
         path

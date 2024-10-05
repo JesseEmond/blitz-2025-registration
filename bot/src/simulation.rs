@@ -8,6 +8,11 @@ use crate::pathfinding::{get_aggressive_path, PathfindingGrid};
 
 const MAX_TICKS: usize = 2000;
 
+pub enum SimulationAction {
+    Move { direction: Option<Move> },
+    MoveTo { position: Pos },
+}
+
 /// Lookup of whether a given tick (index lookup) is a tick where threats move.
 static IS_MOVE_TICK: Lazy<Vec<bool>> = Lazy::new(|| {
     // Logic from:
@@ -48,6 +53,25 @@ pub enum Style {
     Hawk,
 }
 
+fn follow_path(pos: &Pos, path: &Vec<Pos>) -> Option<Move> {
+    if path.is_empty() {
+        return None;
+    }
+    let next = path[0];
+    assert!(next != *pos);
+    assert!(pos.manhattan_dist(&next) <= 1);
+    Some(if next.x > pos.x {
+        Move::Right
+    } else if next.x < pos.x {
+        Move::Left
+    } else if next.y < pos.y {
+        Move::Up
+    } else {
+        assert!(next.y > pos.y);
+        Move::Down
+    })
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct Threat {
     pub pos: Pos,
@@ -56,11 +80,15 @@ pub struct Threat {
     pub style: Style,
     spawn: Pos,
     seed: usize,
+    /// Used by some threat styles to remember a position.
+    pos_storage: Option<Pos>,
 }
 
 impl Threat {
     pub fn new(pos: Pos, style: Style, dir: Move) -> Self {
-        let mut t = Threat { pos, style, dir, spawn: pos.clone(), seed: 0 };
+        let mut t = Threat {
+            pos, style, dir, spawn: pos.clone(), seed: 0, pos_storage: None
+        };
         t._next_rand();  // The initial direction was generated via randomness
         t
     }
@@ -74,11 +102,24 @@ impl Threat {
     }
 
     /// Returns whether we know how to simulate this threat.
-    fn simulate(&mut self, tick: usize, player: &Pos, grid: &PathfindingGrid) -> bool {
+    fn simulate(&mut self, tick: usize, player: &Pos, player_prev: &Pos,
+                grid: &PathfindingGrid) -> bool {
         if !Self::moves_on_tick(tick) {
             return false;
         }
-        let next_move = match self.style {
+        if let Some(m) = self.next_move(tick, player, player_prev, grid) {
+            assert!(Threat::can_predict(self.style));
+            self.pos = self.pos.moved(m);
+            self.dir = m;
+        }
+        // TODO: remove return once we have 100% predictions
+        // If we can predict it, we have enforced above that we have handled it.
+        Threat::can_predict(self.style)
+    }
+
+    fn next_move(&mut self, tick: usize, player: &Pos, player_prev: &Pos,
+                 grid: &PathfindingGrid) -> Option<Move> {
+        match self.style {
             Style::Goldfish => {
                 // See girouette.js
                 let directions = self.get_possible_directions(&grid.grid);
@@ -105,8 +146,8 @@ impl Threat {
                 } else {
                     let directions = directions.into_iter()
                         .filter(|&d| d != self.dir.opposite());
-                    let target = if self.pos.dist_squared(&player) > 6 * 6 {
-                        player
+                    let target = if self.pos.dist_squared(&player_prev) > 6 * 6 {
+                        player_prev
                     } else {
                         &self.spawn
                     };
@@ -117,38 +158,27 @@ impl Threat {
             },
             Style::Shark => {
                 // See aggressive.js
-                let path = get_aggressive_path(&grid.grid, &self.pos, &player);
-                if !path.is_empty() {
-                    let next = path[0];
-                    assert!(next != self.pos);
-                    assert!(self.pos.manhattan_dist(&next) <= 1);
-                    if next.x > self.pos.x {
-                        Some(Move::Right)
-                    } else if next.x < self.pos.x {
-                        Some(Move::Left)
-                    } else if next.y < self.pos.y {
-                        Some(Move::Up)
-                    } else {
-                        assert!(next.y > self.pos.y);
-                        Some(Move::Down)
-                    }
-                } else {
-                    None
-                }
+                let path = get_aggressive_path(&grid.grid, &self.pos, &player_prev);
+                follow_path(&self.pos, &path)
+            },
+            Style::Owl => {
+                // TODO: Re-enable
+                // if tick % 60 < 10 {
+                //     // Note: _lastTargetSeenPosition reads direction from
+                //     // character.position, so it is the current position.
+                //     self.pos_storage = Some(*player);
+                // }
+                // self.pos_storage.and_then(|target| {
+                //     let path = grid.get_path(&self.pos, &target);
+                //     follow_path(&self.pos, &path)
+                // })
+                None
             },
             _ => {
                 assert!(!Threat::can_predict(self.style));
                 None  // TODO: implement other styles
             },
-        };
-        if let Some(m) = next_move {
-            assert!(Threat::can_predict(self.style));
-            self.pos = self.pos.moved(m);
-            self.dir = m;
         }
-        // TODO: remove return once we have 100% predictions
-        // If we can predict it, we have enforced above that we have handled it.
-        Threat::can_predict(self.style)
     }
 
     fn move_every_n_ticks(tick: usize) -> usize {
@@ -246,7 +276,7 @@ impl State {
         // While we know how to simulate a threat, skip it.
         while !self.is_turn_end() {
             if !self.threats[self.turn - 1].simulate(
-                self.tick, &self.prev_pos, &self.grid) {
+                self.tick, &self.pos, &self.prev_pos, &self.grid) {
                 break;
             }
             self.turn += 1;
@@ -254,8 +284,9 @@ impl State {
         if self.is_turn_end() {
             self.tick += 1;
             self.turn = 0;
-            // Threats see the pos of the player before it moves. Only update
-            // the player's seen position after we're done with a full turn.
+            // Some threats see the pos of the player before it moves. Only
+            // update the player's seen position after we're done with a full
+            // turn.
             // See 'simulate_tick' for JS code pointers.
             self.prev_pos = self.pos;
         }
@@ -266,24 +297,34 @@ impl State {
     }
 
     /// Similar to 'apply', but directly replicates the server tick logic.
-    pub fn simulate_tick(&mut self, action: Option<Move>) {
+    pub fn simulate_tick(&mut self, action: SimulationAction) {
         self.check_game_over();
         if self.game_over {
             let killers: Vec<Style> = self.threats.iter().filter(|t| t.pos == self.pos)
                 .map(|t| t.style).collect();
             println!("Got killed by {:?} on {:?}!", killers, self.pos)
         }
-        if let Some(m) = action {
-            self.pos = self.pos.moved(m);
+        match action {
+            SimulationAction::Move { direction } => {
+                if let Some(m) = direction {
+                    self.pos = self.pos.moved(m);
+                }
+            },
+            SimulationAction::MoveTo { position } => {
+                let path = self.grid.get_path(&self.pos, &position);
+                if let Some(m) = follow_path(&self.pos, &path) {
+                    self.pos = self.pos.moved(m);
+                }
+            },
         }
         for t in &mut self.threats {
             let prev_pos = t.pos;
-            if t.simulate(self.tick, &self.prev_pos, &self.grid) {
+            if t.simulate(self.tick, &self.pos, &self.prev_pos, &self.grid) {
                 // TODO: remove once confident in preditions
                 println!("{:?} will move from {:?} to {:?}", t.style, prev_pos, t.pos);
             }
         }
-        // Threats only see the position of the character from th prev tick, see
+        // Some threats only see the character position from the prev tick, see
         // https://github.com/JesseEmond/blitz-2025-registration/blob/dbe84ed80ebc441d071d5e6eb0d6a476d580a9e2/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/world.decomp.js#L206-L208
         self.prev_pos = self.pos;
         self.tick += 1;
@@ -292,6 +333,8 @@ impl State {
     /// Update our state based on what the server sent back.
     pub fn update_observed_state(&mut self, game: &Game) {
         // TODO: Replace with only asserts once we perfectly predict the game
+        println!("Tick: {}", self.tick);
+        println!("Player: {:?}", self.pos);
         assert_eq!(self.tick, game.tick, "tick");
         assert_eq!(self.pos, game.pos, "pos");
         if self.game_over != !game.alive {
@@ -301,7 +344,8 @@ impl State {
         self.threats.iter_mut().zip(game.threats.iter()).for_each(|(threat, actual)| {
             assert_eq!(threat.style, actual.style);
             if Threat::can_predict(threat.style) {
-                assert_eq!(threat.dir, actual.dir, "{:?} dir", threat.style);
+                assert_eq!(threat.dir, actual.dir, "{:?} dir (@{:?})",
+                           threat.style, actual.pos);
                 assert_eq!(threat.pos, actual.pos, "{:?} pos", threat.style);
             } else {
                 println!("[TODO] Learn to predict {:?}", threat.style);
@@ -341,7 +385,7 @@ impl State {
 mod tests {
     use strum::IntoEnumIterator;
     use super::*;
-    use super::super::grid::make_grid;
+    use super::super::grid::{debug_print, make_grid};
 
     fn make_test_game() -> Game {
         let threats = Style::iter().filter(|&s| Threat::can_predict(s))
@@ -370,9 +414,9 @@ mod tests {
         let mut applied = simulated.clone();
         for _ in 0..1500 {
             let moves = simulated.generate_moves();
-            let our_move = *moves.iter().next().unwrap();
-            simulated.simulate_tick(our_move);
-            applied.apply(our_move);
+            let direction = *moves.iter().next().unwrap();
+            simulated.simulate_tick(SimulationAction::Move { direction });
+            applied.apply(direction);
             // All predictable threats, should have moved to next turn.
             assert!(applied.is_player_turn());
             assert_eq!(simulated.tick, applied.tick);
@@ -380,5 +424,45 @@ mod tests {
             assert_eq!(simulated.pos, applied.pos);
             assert_eq!(simulated.threats, applied.threats);
         }
+    }
+
+    #[test]
+    fn test_owl_prediction_misprediction_repro() {
+        let grid = PathfindingGrid::new(make_grid(vec![
+            "######################",
+            "#                    #",
+            "# ########  ######## #",
+            "# #                # #",
+            "# #### ###  # #### # #",
+            "# ####      # #### # #",
+            "# #### ###  # #### # #",
+            "#           # #      #",
+            "# #### ###  # # #### #",
+            "# #  #      # # #  # #",
+            "# #    ###  # #    # #",
+            "# #                # #",
+            "# ########  ######## #",
+            "#                    #",
+            "######################",
+        ]));
+        let player = Pos { x: 20, y: 1 };
+        let prev_player = player;  // not important
+        let owl = Pos { x: 10, y: 12 };
+        let tick = 60;
+        // Direction & seed not important.
+        let mut threat = Threat::new(owl, Style::Owl, Move::Up);
+        let path = grid.get_path(&owl, &player);
+        // TODO: remove
+        let to_idx = grid.grid.empty_tile_idx(&player);
+        let to_state = &grid.pathfinding_states[to_idx];
+        println!("Cost of player to owl: {}",
+                 to_state.get_cost(&grid.grid, &owl));
+        println!("Cost of player to owl up: {}",
+                 to_state.get_cost(&grid.grid, &owl.moved(Move::Up)));
+        println!("Cost of player to owl right: {}",
+                 to_state.get_cost(&grid.grid, &owl.moved(Move::Right)));
+        debug_print(&grid.grid, vec![(&player, 'P'), (&owl, 'O'), (&path[0], '.')]);
+        assert_eq!(threat.next_move(tick, &player, &prev_player, &grid),
+                   Some(Move::Up));
     }
 }

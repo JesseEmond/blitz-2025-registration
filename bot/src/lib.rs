@@ -79,6 +79,12 @@ impl GamePosition {
     }
 }
 
+impl GamePosition {
+    fn from_pos(pos: &Pos) -> Self {
+        Self::new(pos.x as i32, pos.y as i32)
+    }
+}
+
 #[pyclass]
 #[derive(Clone)]
 pub struct GameThreat {
@@ -175,6 +181,12 @@ impl DevnullBot {
     /// Replay an action after seeing a state. For offline replay.
     pub fn simulate(&mut self, game_state: &GameState, action: Action) -> PyResult<()> {
         self.bot.simulate(&game_state.to_game(), action.to_move());
+        Ok(())
+    }
+
+    /// Replay a "move-to" action after seeing a state. For offline replay.
+    pub fn simulate_move_to(&mut self, game_state: &GameState, move_to: &GamePosition) -> PyResult<()> {
+        self.bot.simulate_move_to(&game_state.to_game(), &move_to.to_pos());
         Ok(())
     }
 }
