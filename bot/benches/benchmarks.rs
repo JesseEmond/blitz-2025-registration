@@ -2,7 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use pprof::criterion::{Output, PProfProfiler};
 
 use devnull_bot::grid::{make_grid, Pos};
-use devnull_bot::pathfinding::{get_aggressive_path};
+use devnull_bot::pathfinding::{get_aggressive_path, PathfindingGrid};
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     let grid = make_grid(vec![
@@ -31,6 +31,9 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| get_aggressive_path(
                 black_box(&grid), black_box(&Pos { x: 5, y: 1 }),
                 black_box(&Pos { x: 9, y: 1 })));
+    });
+    c.bench_function("PathfindingGrid 22x15 creation", |b| {
+        b.iter(|| PathfindingGrid::new(black_box(grid.clone())));
     });
 }
 

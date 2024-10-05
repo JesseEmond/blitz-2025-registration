@@ -201,6 +201,26 @@ impl Pathfinder for FastAggressivePathfinder {
     }
 }
 
+/// Grid that precomputes pathfinding information at creation time.
+pub struct PathfindingGrid {
+    pub grid: Grid,
+    /// Per-empty tile precomputed pathfinding information.
+    pathfinding_states: Vec<PathfinderState>,
+}
+
+impl PathfindingGrid {
+    pub fn new(grid: Grid) -> Self {
+        let mut pathfinding_states = Vec::new();
+        for pos in &grid.empty_tiles {
+            // TODO: Consider using a non "aggressive" pathfinder -- can be a
+            // regularly optimized one not matching the JS details.
+            let mut pathfinder = FastAggressivePathfinder::new(&grid);
+            pathfinding_states.push(pathfinder.pathfind(&grid, &pos, &None));
+        }
+        Self { grid, pathfinding_states }
+    }
+}
+
 pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
     let mut pathfinder = FastAggressivePathfinder::new(grid);
     let state = pathfinder.pathfind(grid, from, &Some(*to));
