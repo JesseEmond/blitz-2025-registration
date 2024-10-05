@@ -34,6 +34,7 @@ impl PathfinderState {
 
     /// Get cost of going to 'to', from our start position.
     /// Only valid after using a 'Pathfinder'.
+    #[allow(dead_code)] 
     pub fn get_cost(&self, grid: &Grid, to: &Pos) -> Cost {
         self.cost[grid.empty_tile_idx(to)]
     }
@@ -74,7 +75,6 @@ trait Pathfinder {
         self.commit();
         while let Some(pos_idx) = self.next_node(&state) {
             let current_cost = state.cost[pos_idx];
-            let pos = grid.empty_tiles[pos_idx];
             // Note: order is irrelevant, since we enforce order in the
             // pathfinder implementations to match the JS behavior anyway.
             for next_pos_idx in grid.get_neighbors(pos_idx) {
@@ -105,6 +105,7 @@ struct SlowAggressivePathfinder {
 }
 
 impl SlowAggressivePathfinder {
+    #[allow(dead_code)] 
     fn new(grid: &Grid) -> Self {
         Self { unseen: (0..grid.empty_tiles.len()).collect() }
     }
@@ -147,7 +148,7 @@ struct FastAggressivePathfinder {
 }
 
 impl FastAggressivePathfinder {
-    fn new(grid: &Grid) -> Self {
+    fn new(_grid: &Grid) -> Self {
         Self {
             frontier: VecDeque::new(),
             frontier_cost: 0,
@@ -174,7 +175,7 @@ impl Pathfinder for FastAggressivePathfinder {
         node
     }
 
-    fn queue(&mut self, state: &PathfinderState, next: Node, cost: Cost) {
+    fn queue(&mut self, _state: &PathfinderState, next: Node, cost: Cost) {
         assert!(cost == self.frontier_cost || cost == self.frontier_cost + 1);
         if cost == self.frontier_cost {
             self.frontier_buffer.push(next);
@@ -275,7 +276,6 @@ mod tests {
         while let Some(pos_idx) = fast.next_node(&state) {
             assert_eq!(Some(pos_idx), slow.next_node(&state));
             let current_cost = state.cost[pos_idx];
-            let pos = grid.empty_tiles[pos_idx];
             for next_pos_idx in grid.get_neighbors(pos_idx) {
                 let prev_cost = state.cost[next_pos_idx];
                 let new_cost = current_cost + 1;

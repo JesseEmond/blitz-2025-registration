@@ -145,3 +145,25 @@ pub fn make_grid(rows: Vec<&str>) -> Grid {
     }
     Grid::new(width as u8, height as u8, tiles)
 }
+
+#[allow(dead_code)] 
+fn debug_print(grid: &Grid, highlights: Vec<(&Pos, char)>) {
+    for y in 0..(grid.height as i16) {
+        for x in 0..(grid.width as i16) {
+            let pos = Pos { x, y };
+            let highlight = highlights.iter()
+                .filter(|(&p, _)| p == pos)
+                .map(|(_, c)| c)
+                .next();
+            if let Some(c) = highlight {
+                print!("{}", c);
+            } else if grid.is_empty(&pos) {
+                print!(" ");
+            } else {
+                print!("#");
+            }
+        }
+        println!();
+    }
+}
+
