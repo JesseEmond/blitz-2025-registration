@@ -65,20 +65,20 @@ trait Pathfinder {
     /// Queue up a future note to visit.
     fn queue(&mut self, state: &PathfinderState, next: Node, cost: Cost);
 
-    /// Called when we start visiting a node (right after 'next_node').
-    fn start_visiting(&mut self);
     /// Called when we are done visiting a node (no more 'queue' calls for this
     /// node will be called).
-    fn done_visiting(&mut self);
+    fn commit(&mut self);
 
     /// Find the shortest paths from 'from' on a grid, optionally to target 'to'.
     fn pathfind(&mut self, grid: &Grid, from: &Pos, to: &Option<Pos>) -> PathfinderState {
         let mut state = PathfinderState::new(grid, from, to);
         self.queue(&state, grid.empty_tile_idx(from), 0);
+        self.commit();
         while let Some(pos_idx) = self.next_node(&state) {
-            self.start_visiting();
             let current_cost = state.cost[pos_idx];
             let pos = grid.empty_tiles[pos_idx];
+            // Note: order is irrelevant, since we enforce order in the
+            // pathfinder implementations to match the JS behavior anyway.
             for d in Move::iter() {
                 let next_pos = pos.moved(d);
                 if !grid.is_empty(&next_pos) {
@@ -96,7 +96,7 @@ trait Pathfinder {
                 }
 
             }
-            self.done_visiting();
+            self.commit();
         }
         state
     }
@@ -111,7 +111,6 @@ struct SlowAggressivePathfinder {
     unseen: Vec<Node>,
 }
 
-// TODO: verify in 'get_aggressive_path' that outputs match
 impl SlowAggressivePathfinder {
     fn new(grid: &Grid) -> Self {
         Self { unseen: (0..grid.empty_tiles.len()).collect() }
@@ -125,8 +124,7 @@ impl Pathfinder for SlowAggressivePathfinder {
     }
 
     fn queue(&mut self, _state: &PathfinderState, _next: Node, _cost: Cost) {}
-    fn start_visiting(&mut self) {}
-    fn done_visiting(&mut self) {}
+    fn commit(&mut self) {}
 }
 
 /// Optimized implementation of SlowAggressivePathfinder.
@@ -146,9 +144,65 @@ impl Pathfinder for SlowAggressivePathfinder {
 ///   the same loop will keep their initial relative order from 'empty_tiles'
 ///   instead of being in the order seen
 struct FastAggressivePathfinder {
+    frontier: VecDeque<Node>,
+    /// Nodes with cost of nodes in 'frontier', + 1.
+    next_frontier: VecDeque<Node>,
+    frontier_cost: Cost,
+
+    // See 'commit' for why we need to buffer queues before committing them.
+    frontier_adds: Vec<Node>,
+    next_frontier_adds: Vec<Node>,
 }
 
-// TODO: move fast logic here
+impl FastAggressivePathfinder {
+    fn new(grid: &Grid) -> Self {
+        Self {
+            frontier: VecDeque::new(),
+            next_frontier: VecDeque::new(),
+            frontier_cost: 0,
+            frontier_adds: Vec::new(),
+            next_frontier_adds: Vec::new(),
+        }
+    }
+}
+
+impl Pathfinder for FastAggressivePathfinder {
+    fn next_node(&mut self, state: &PathfinderState) -> Option<Node> {
+        assert!(self.frontier_adds.is_empty());
+        assert!(self.next_frontier_adds.is_empty());
+        if self.frontier.is_empty() {
+            std::mem::swap(&mut self.frontier, &mut self.next_frontier);
+            self.frontier_cost += 1;
+        }
+        // TODO: impl early exit
+        self.frontier.pop_back()
+    }
+
+    fn queue(&mut self, state: &PathfinderState, next: Node, cost: Cost) {
+        assert!(cost == self.frontier_cost || cost == self.frontier_cost + 1);
+        if cost == self.frontier_cost {
+            self.frontier_adds.push(next);
+        } else {
+            self.next_frontier_adds.push(next);
+        }
+    }
+
+    fn commit(&mut self) {
+        // Because the JS code only sorts on new 'while' iterations, multiple
+        // positions discovered on the same iteration will keep their same
+        // initial ordering in the array, which comes from the 'empty_tiles'
+        // creation order (their index). We can sort by node index to replicate
+        // this.
+        self.frontier_adds.sort();
+        self.next_frontier_adds.sort();
+        // New additions move to the front. When the JS version sorts, all the
+        // previously unseen positions are to the left of seen ones (from prev
+        // Infinity cost value), and will preserve this relative order to
+        // existing frontier items (from a stable sort).
+        self.frontier_adds.drain(..).rev().for_each(|n| self.frontier.push_front(n));
+        self.next_frontier_adds.drain(..).rev().for_each(|n| self.next_frontier.push_front(n));
+    }
+}
 
 // TODO: switch to use pathfinder
 pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
@@ -180,6 +234,7 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
     cost[grid.empty_tile_idx(from)] = 0;
     frontier.push_front(*from);
     pathfinder.queue(&pathfinder_state, grid.empty_tile_idx(from), 0);
+    pathfinder.commit();
     while !frontier.is_empty() || !next_frontier.is_empty() {
         if frontier.is_empty() {
             std::mem::swap(&mut frontier, &mut next_frontier);
@@ -194,14 +249,11 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
         }
         let mut frontier_adds = Vec::new();
         let mut next_frontier_adds = Vec::new();
-        pathfinder.start_visiting();
         // Note: order is irrelevant, since we enforce order to match the JS
         // behavior below anyway.
         for d in Move::iter() {
             let next_pos = pos.moved(d);
-            if !grid.is_empty(&next_pos) {
-                continue;
-            }
+            if !grid.is_empty(&next_pos) { continue; }
             let next_pos_idx = grid.empty_tile_idx(&next_pos);
             let current_cost = cost[next_pos_idx];
             let new_cost = cost[grid.empty_tile_idx(&pos)] + 1;
@@ -233,7 +285,7 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
         // existing frontier items (from a stable sort).
         frontier_adds.into_iter().rev().for_each(|p| frontier.push_front(p));
         next_frontier_adds.into_iter().rev().for_each(|p| next_frontier.push_front(p));
-        pathfinder.done_visiting();
+        pathfinder.commit();
     }
     let mut path = Vec::new();
     let mut node = *to;
@@ -255,9 +307,8 @@ mod tests {
     use super::*;
     use super::super::grid::make_grid;
 
-    #[test]
-    fn test_slow_pathfinder_same_path_as_get_aggressive_path() {
-        let grid = make_grid(vec![
+    fn make_test_grid() -> Grid {
+        make_grid(vec![
             "######################",
             "#                    #",
             "# ########  ######## #",
@@ -273,7 +324,12 @@ mod tests {
             "# ########  ######## #",
             "#                    #",
             "######################",
-        ]);
+        ])
+    }
+
+    #[test]
+    fn test_slow_pathfinder_same_path_as_get_aggressive_path() {
+        let grid = make_test_grid();
         let from = Pos { x: 5, y: 1 };
         let to = Pos { x: 18, y: 13 };
 
@@ -283,6 +339,57 @@ mod tests {
         assert_eq!(path, get_aggressive_path(&grid, &from, &to));
     }
 
-    // TODO: unit test that slow pathfinder's final path == fast one
-    // TODO: unit test that fast pathfinder per-step has same outputs as slow
+    #[test]
+    fn test_slow_pathfinder_same_path_as_fast_pathfinder() {
+        let grid = make_test_grid();
+        let from = Pos { x: 5, y: 1 };
+        let to = Pos { x: 18, y: 13 };
+
+        let mut slow = SlowAggressivePathfinder::new(&grid);
+        let slow_path = slow.pathfind(&grid, &from, &Some(to))
+            .get_path(&grid, &to);
+        let mut fast = FastAggressivePathfinder::new(&grid);
+        let fast_path = fast.pathfind(&grid, &from, &Some(to))
+            .get_path(&grid, &to);
+        assert_eq!(slow_path, fast_path);
+    }
+
+    #[test]
+    fn test_slow_pathfinder_visits_same_nodes_as_fast_pathfinder() {
+        let grid = make_test_grid();
+        let from = Pos { x: 5, y: 1 };
+        let to = Pos { x: 18, y: 13 };
+
+        let mut slow = SlowAggressivePathfinder::new(&grid);
+        let mut fast = FastAggressivePathfinder::new(&grid);
+        let mut state = PathfinderState::new(&grid, &from, &Some(to));
+        slow.queue(&state, grid.empty_tile_idx(&from), 0);
+        slow.commit();
+        fast.queue(&state, grid.empty_tile_idx(&from), 0);
+        fast.commit();
+        // Note: rely on 'fast' for finishing the check, since it can early exit
+        while let Some(pos_idx) = fast.next_node(&state) {
+            assert_eq!(Some(pos_idx), slow.next_node(&state));
+            let current_cost = state.cost[pos_idx];
+            let pos = grid.empty_tiles[pos_idx];
+            for d in Move::iter() {
+                let next_pos = pos.moved(d);
+                if !grid.is_empty(&next_pos) { continue; }
+                let next_pos_idx = grid.empty_tile_idx(&next_pos);
+                let prev_cost = state.cost[next_pos_idx];
+                let new_cost = current_cost + 1;
+                if prev_cost == COST_INFINITY {
+                    state.cost[next_pos_idx] = new_cost;
+                    state.came_from[next_pos_idx] = Some(pos);
+                    fast.queue(&state, next_pos_idx, new_cost);
+                    slow.queue(&state, next_pos_idx, new_cost);
+                } else {
+                    assert!(new_cost >= prev_cost);
+                }
+
+            }
+            fast.commit();
+            slow.commit();
+        }
+    }
 }
