@@ -18,9 +18,9 @@ struct PathfinderState {
     /// For a given 'empty_tiles' index, its shortest distance to a start point.
     cost: Vec<Cost>,
     /// For a given 'empty_tiles' index, previous pos on shortest path.
-    came_from: Vec<Option<Pos>>,
+    came_from: Vec<Option<Node>>,
     /// Goal position, if applicable, for optional early stopping.
-    target: Option<Pos>,
+    target: Option<Node>,
 }
 
 impl PathfinderState {
@@ -30,7 +30,7 @@ impl PathfinderState {
         Self {
             cost,
             came_from: vec![None; grid.empty_tiles.len()],
-            target: *to,
+            target: to.map(|pos| grid.empty_tile_idx(&pos)),
         }
     }
 
@@ -45,10 +45,10 @@ impl PathfinderState {
     /// Only valid after using a 'Pathfinder'.
     pub fn get_path(&self, grid: &Grid, to: &Pos) -> Path {
         let mut path = Path::new();
-        let mut node = *to;
+        let mut node = grid.empty_tile_idx(to);
         loop {
-            if let Some(parent) = self.came_from[grid.empty_tile_idx(&node)] {
-                path.push(node);
+            if let Some(parent) = self.came_from[node] {
+                path.push(grid.empty_tiles[node]);
                 node = parent;
             } else {
                 break;
@@ -89,7 +89,7 @@ trait Pathfinder {
                 let new_cost = current_cost + 1;
                 if prev_cost == COST_INFINITY {
                     state.cost[next_pos_idx] = new_cost;
-                    state.came_from[next_pos_idx] = Some(pos);
+                    state.came_from[next_pos_idx] = Some(pos_idx);
                     self.queue(&state, next_pos_idx, new_cost);
                 } else {
                     assert!(new_cost >= prev_cost);
@@ -169,8 +169,9 @@ impl Pathfinder for FastAggressivePathfinder {
         // Buffers should have been cleared in 'commit'
         assert!(self.frontier_buffer.is_empty());
         assert!(self.next_frontier_buffer.is_empty());
-        // TODO: impl early exit as filter
-        let node = self.frontier.pop_back();
+        let node = self.frontier.pop_back()
+            // Early exit if we found target
+            .filter(|&node| state.target.map_or(true, |target| node != target));
         if let Some(node) = node {
             if state.cost[node] > self.frontier_cost {
                 self.frontier_cost += 1;
@@ -243,12 +244,13 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
             frontier_cost += 1;
         }
         let pos = frontier.pop_back().unwrap();
-        let pathfinder_pos_idx = pathfinder.next_node(&pathfinder_state).expect("empty");
-        assert_eq!(grid.empty_tile_idx(&pos), pathfinder_pos_idx);
+        let pos_idx = grid.empty_tile_idx(&pos);
         if pos == *to {
             // Early exit if we found the target
             break;
         }
+        let pathfinder_pos_idx = pathfinder.next_node(&pathfinder_state).expect("empty");
+        assert_eq!(grid.empty_tile_idx(&pos), pathfinder_pos_idx);
         let mut frontier_adds = Vec::new();
         let mut next_frontier_adds = Vec::new();
         // Note: order is irrelevant, since we enforce order to match the JS
@@ -263,7 +265,7 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
                 cost[next_pos_idx] = new_cost;
                 came_from[next_pos_idx] = Some(pos);
                 pathfinder_state.cost[next_pos_idx] = new_cost;
-                pathfinder_state.came_from[next_pos_idx] = Some(pos);
+                pathfinder_state.came_from[next_pos_idx] = Some(pos_idx);
                 pathfinder.queue(&pathfinder_state, next_pos_idx, new_cost);
                 assert!(new_cost == frontier_cost || new_cost == frontier_cost + 1);
                 if new_cost == frontier_cost {
@@ -382,7 +384,7 @@ mod tests {
                 let new_cost = current_cost + 1;
                 if prev_cost == COST_INFINITY {
                     state.cost[next_pos_idx] = new_cost;
-                    state.came_from[next_pos_idx] = Some(pos);
+                    state.came_from[next_pos_idx] = Some(pos_idx);
                     fast.queue(&state, next_pos_idx, new_cost);
                     slow.queue(&state, next_pos_idx, new_cost);
                 } else {
