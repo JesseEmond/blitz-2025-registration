@@ -224,9 +224,6 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
     // - sort is called at the start of the loop, so any newly added nodes in
     //   the same loop will keep their initial relative order from 'empty_tiles'
     //   instead of being in the order seen
-    // TODO: remove checking logic once unit test enforces it
-    let mut pathfinder_state = PathfinderState::new(grid, from, &Some(*to));
-    let mut pathfinder = FastAggressivePathfinder::new(&grid);
     const HIGH_COST: usize = 9999999;
     let mut cost = vec![HIGH_COST; grid.empty_tiles.len()];
     let mut came_from = vec![None; grid.empty_tiles.len()];
@@ -236,8 +233,6 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
     let mut frontier_cost = 0;
     cost[grid.empty_tile_idx(from)] = 0;
     frontier.push_front(*from);
-    pathfinder.queue(&pathfinder_state, grid.empty_tile_idx(from), 0);
-    pathfinder.commit();
     while !frontier.is_empty() || !next_frontier.is_empty() {
         if frontier.is_empty() {
             std::mem::swap(&mut frontier, &mut next_frontier);
@@ -249,8 +244,6 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
             // Early exit if we found the target
             break;
         }
-        let pathfinder_pos_idx = pathfinder.next_node(&pathfinder_state).expect("empty");
-        assert_eq!(grid.empty_tile_idx(&pos), pathfinder_pos_idx);
         let mut frontier_adds = Vec::new();
         let mut next_frontier_adds = Vec::new();
         // Note: order is irrelevant, since we enforce order to match the JS
@@ -264,9 +257,6 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
             if current_cost == HIGH_COST {
                 cost[next_pos_idx] = new_cost;
                 came_from[next_pos_idx] = Some(pos);
-                pathfinder_state.cost[next_pos_idx] = new_cost;
-                pathfinder_state.came_from[next_pos_idx] = Some(pos_idx);
-                pathfinder.queue(&pathfinder_state, next_pos_idx, new_cost);
                 assert!(new_cost == frontier_cost || new_cost == frontier_cost + 1);
                 if new_cost == frontier_cost {
                     frontier_adds.push(next_pos);
@@ -289,7 +279,6 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
         // existing frontier items (from a stable sort).
         frontier_adds.into_iter().rev().for_each(|p| frontier.push_front(p));
         next_frontier_adds.into_iter().rev().for_each(|p| next_frontier.push_front(p));
-        pathfinder.commit();
     }
     let mut path = Vec::new();
     let mut node = *to;
@@ -302,7 +291,6 @@ pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
         }
     }
     path.reverse();
-    assert_eq!(path, pathfinder_state.get_path(grid, to));
     path
 }
 
