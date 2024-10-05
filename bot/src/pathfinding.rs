@@ -1,8 +1,6 @@
 use std::collections::VecDeque;
 
-use strum::IntoEnumIterator;
-
-use crate::grid::{Grid, Move, Pos};
+use crate::grid::{EmptyTile, Grid, Pos};
 
 pub type Cost = usize;
 /// Impossible cost in our game.
@@ -11,7 +9,7 @@ const COST_INFINITY: Cost = Cost::MAX;
 pub type Path = Vec<Pos>;
 
 /// Index into the 'empty_tiles' of a grid.
-type Node = usize;
+type Node = EmptyTile;
 
 /// State of pathfinding from a given start point.
 struct PathfinderState {
@@ -79,12 +77,7 @@ trait Pathfinder {
             let pos = grid.empty_tiles[pos_idx];
             // Note: order is irrelevant, since we enforce order in the
             // pathfinder implementations to match the JS behavior anyway.
-            for d in Move::iter() {
-                let next_pos = pos.moved(d);
-                if !grid.is_empty(&next_pos) {
-                    continue;
-                }
-                let next_pos_idx = grid.empty_tile_idx(&next_pos);
+            for next_pos_idx in grid.get_neighbors(pos_idx) {
                 let prev_cost = state.cost[next_pos_idx];
                 let new_cost = current_cost + 1;
                 if prev_cost == COST_INFINITY {
@@ -283,10 +276,7 @@ mod tests {
             assert_eq!(Some(pos_idx), slow.next_node(&state));
             let current_cost = state.cost[pos_idx];
             let pos = grid.empty_tiles[pos_idx];
-            for d in Move::iter() {
-                let next_pos = pos.moved(d);
-                if !grid.is_empty(&next_pos) { continue; }
-                let next_pos_idx = grid.empty_tile_idx(&next_pos);
+            for next_pos_idx in grid.get_neighbors(pos_idx) {
                 let prev_cost = state.cost[next_pos_idx];
                 let new_cost = current_cost + 1;
                 if prev_cost == COST_INFINITY {

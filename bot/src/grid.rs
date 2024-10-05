@@ -53,6 +53,8 @@ impl Pos {
     }
 }
 
+pub type EmptyTile = usize;
+
 #[derive(Clone)]
 pub struct Grid {
     pub width: u8,
@@ -63,7 +65,9 @@ pub struct Grid {
     // Precomputed features of the grid on init.
     pub empty_tiles: Vec<Pos>,
     /// At [x][y], index in 'empty_tiles' (only valid for empty tiles).
-    pub empty_tiles_lookup: Vec<Vec<usize>>,
+    pub empty_tiles_lookup: Vec<Vec<EmptyTile>>,
+    /// At an 'empty_tiles' index, neighbor indices.
+    neighbors: Vec<Vec<EmptyTile>>,
 }
 
 impl Grid {
@@ -73,7 +77,7 @@ impl Grid {
             vec![usize::MAX; height as usize]; width as usize];
         // Note: the order of the loops here matters (outer xs, inner ys), to
         // match the JS code for get_aggressive_path.
-        // TODO: verify in unit test
+        // TODO: verify the above in unit test
         for x in 0..(width as usize) {
             for y in 0..(height as usize) {
                 if !tiles[x][y] {
@@ -83,13 +87,32 @@ impl Grid {
                 }
             }
         }
-        Self { width, height, tiles, empty_tiles, empty_tiles_lookup }
+        let mut neighbors = Vec::new();
+        for p in &empty_tiles {
+            let mut pos_neighbors = Vec::new();
+            for m in Move::iter() {
+                let n = p.moved(m);
+                if n.x < 0 || n.x >= width as i16 || n.y < 0 || n.y >= height as i16 {
+                    continue;
+                }
+                if !tiles[n.x as usize][n.y as usize] {
+                    let idx = empty_tiles_lookup[n.x as usize][n.y as usize];
+                    pos_neighbors.push(idx);
+                }
+            }
+            neighbors.push(pos_neighbors);
+        }
+        Self { width, height, tiles, empty_tiles, empty_tiles_lookup, neighbors }
     }
 
     pub fn available_moves(&self, from: &Pos) -> Vec<Move> {
         Move::iter()
             .filter(|&m| self.is_empty(&from.moved(m)))
             .collect()
+    }
+
+    pub fn get_neighbors(&self, from: EmptyTile) -> impl Iterator<Item = EmptyTile> + '_ {
+        self.neighbors[from].iter().cloned()
     }
 
     pub fn is_empty(&self, pos: &Pos) -> bool {
