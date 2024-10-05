@@ -3,7 +3,7 @@ use std::sync::Arc;
 use strum_macros::EnumIter;
 use once_cell::sync::Lazy;
 
-use crate::grid::{get_aggressive_path, Grid, Move, PathfindingGrid, Pos};
+use crate::grid::{get_aggressive_path, Grid, Move, Pos};
 
 const MAX_TICKS: usize = 2000;
 
@@ -73,21 +73,21 @@ impl Threat {
     }
 
     /// Returns whether we know how to simulate this threat.
-    fn simulate(&mut self, tick: usize, player: &Pos, grid: &PathfindingGrid) -> bool {
+    fn simulate(&mut self, tick: usize, player: &Pos, grid: &Grid) -> bool {
         if !Self::moves_on_tick(tick) {
             return false;
         }
         let next_move = match self.style {
             Style::Goldfish => {
                 // See girouette.js
-                let directions = self.get_possible_directions(&grid.grid);
+                let directions = self.get_possible_directions(&grid);
                 let o = self._next_rand() * directions.len() as f64;
                 let idx = o.floor();
                 Some(directions[idx as usize])
             },
             Style::Bull => {
                 // See straight_ahead_threat.js
-                let directions = self.get_possible_directions(&grid.grid);
+                let directions = self.get_possible_directions(&grid);
                 if directions.contains(&self.dir) {
                     Some(self.dir)
                 } else {
@@ -98,7 +98,7 @@ impl Threat {
             },
             Style::Deer => {
                 // See tse_le_fantome_orange_dans_pacman.js
-                let directions = self.get_possible_directions(&grid.grid);
+                let directions = self.get_possible_directions(&grid);
                 if directions.len() == 1 {
                     Some(directions[0])
                 } else {
@@ -191,7 +191,7 @@ pub struct Game {
 
 #[derive(Clone)]
 pub struct State {
-    pub grid: Arc<PathfindingGrid>,
+    pub grid: Arc<Grid>,
     pub tick: usize,
     pub pos: Pos,
     prev_pos: Pos,
@@ -206,7 +206,7 @@ impl State {
         // https://github.com/JesseEmond/blitz-2025-registration/blob/dbe84ed80ebc441d071d5e6eb0d6a476d580a9e2/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L467
         let prev_pos = Pos { x: -1, y: -1 };
         let mut state = State {
-            grid: Arc::new(PathfindingGrid::new(game.grid)),
+            grid: Arc::new(game.grid),
             tick: game.tick,
             pos: game.pos,
             prev_pos,
@@ -221,9 +221,9 @@ impl State {
     pub fn generate_moves(&self) -> Vec<Option<Move>> {
         let mut moves = Vec::new();
         if self.is_player_turn() {
-            moves.extend(self.grid.grid.available_moves(&self.pos).iter().map(|&m| Some(m)));
+            moves.extend(self.grid.available_moves(&self.pos).iter().map(|&m| Some(m)));
         } else {
-            moves.extend(self.grid.grid.available_moves(&self.threat_turn().pos).iter().map(|&m| Some(m)));
+            moves.extend(self.grid.available_moves(&self.threat_turn().pos).iter().map(|&m| Some(m)));
         }
         moves.push(None);
         moves

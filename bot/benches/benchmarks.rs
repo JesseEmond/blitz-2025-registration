@@ -1,10 +1,10 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use pprof::criterion::{Output, PProfProfiler};
 
-use devnull_bot::grid::{get_aggressive_path, make_grid, PathfindingGrid, Pos};
+use devnull_bot::grid::{get_aggressive_path, make_grid, Pos};
 
 pub fn criterion_benchmark(c: &mut Criterion) {
-    let grid = PathfindingGrid::new(make_grid(vec![
+    let grid = make_grid(vec![
         "######################",
         "#                    #",
         "# ########  ######## #",
@@ -20,7 +20,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         "# ########  ######## #",
         "#                    #",
         "######################",
-    ]));
+    ]);
     c.bench_function("get_aggressive_path 22x15 far", |b| {
         b.iter(|| get_aggressive_path(
                 black_box(&grid), black_box(&Pos { x: 5, y: 1 }),

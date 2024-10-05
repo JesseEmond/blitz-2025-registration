@@ -146,11 +146,7 @@ impl GameState {
         Game {
             tick: self.tick as usize,
             pos: self.position.to_pos(),
-            grid: Grid {
-                width: self.map.width as u8,
-                height: self.map.height as u8,
-                tiles: self.map.tiles.clone()
-            },
+            grid: Grid::new(self.map.width as u8, self.map.height as u8, self.map.tiles.clone()),
             threats: self.threats.iter().map(
                 |t| Threat::new(t.position.to_pos(), from_style_name(&t.style),
                                 t.direction.to_move()))
