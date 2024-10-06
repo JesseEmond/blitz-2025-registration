@@ -1,3 +1,5 @@
+use std::cmp::Reverse;
+
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
@@ -68,6 +70,8 @@ pub struct Grid {
     pub empty_tiles_lookup: Vec<Vec<EmptyTile>>,
     /// At an 'empty_tiles' index, neighbor indices.
     neighbors: Vec<Vec<EmptyTile>>,
+    /// Used by hawk (sheriff.js).
+    pub best_intersections: Vec<Pos>,
 }
 
 impl Grid {
@@ -87,22 +91,16 @@ impl Grid {
                 }
             }
         }
-        let mut neighbors = Vec::new();
-        for p in &empty_tiles {
-            let mut pos_neighbors = Vec::new();
-            for m in Move::iter() {
-                let n = p.moved(m);
-                if n.x < 0 || n.x >= width as i16 || n.y < 0 || n.y >= height as i16 {
-                    continue;
-                }
-                if !tiles[n.x as usize][n.y as usize] {
-                    let idx = empty_tiles_lookup[n.x as usize][n.y as usize];
-                    pos_neighbors.push(idx);
-                }
-            }
-            neighbors.push(pos_neighbors);
-        }
-        Self { width, height, tiles, empty_tiles, empty_tiles_lookup, neighbors }
+        let mut grid = Self {
+            width, height, tiles, empty_tiles, empty_tiles_lookup,
+            // The following are easier to compute with 'grid' helper functions.
+            neighbors: Vec::new(),
+            best_intersections: Vec::new(),
+        };
+        grid.neighbors = grid._compute_neighbors();
+        // Note: intersections computation assumes that neighbors are computed.
+        grid.best_intersections = grid._compute_best_intersections();
+        grid
     }
 
     pub fn available_moves(&self, from: &Pos) -> Vec<Move> {
@@ -126,6 +124,59 @@ impl Grid {
     pub fn empty_tile_idx(&self, pos: &Pos) -> usize {
         assert!(self.is_empty(pos));
         self.empty_tiles_lookup[pos.x as usize][pos.y as usize]
+    }
+
+    pub fn line_of_sight(&self, a: &Pos, b: &Pos) -> bool {
+        if a.x == b.x {
+            let start = a.y.min(b.y) + 1;
+            let end = a.y.max(b.y) - 1;
+            (start..=end).all(|y| !self.tiles[a.x as usize][y as usize])
+        } else if a.y == b.y {
+            let start = a.x.min(b.x) + 1;
+            let end = a.x.max(b.x) - 1;
+            (start..=end).all(|x| !self.tiles[x as usize][a.y as usize])
+        } else {
+            false
+        }
+    }
+
+    fn get_intersections(&self) -> Vec<Pos> {
+        // Note: order here assumes outer loop on xs, inner loop on ys.
+        // 'empty_tiles' fits that profile.
+        self.empty_tiles.iter().enumerate()
+            .filter(|&(i, _)| self.get_neighbors(i).count() >= 3)
+            .map(|(_, pos)| pos).cloned()
+            .collect()
+    }
+
+    fn get_row_length(&self, pos: &Pos) -> usize {
+        let mut row_length = 0;
+        row_length += (0..pos.y).rev()
+            .take_while(|&y| !self.tiles[pos.x as usize][y as usize]).count();
+        row_length += ((pos.y+1)..self.height as i16)
+            .take_while(|&y| !self.tiles[pos.x as usize][y as usize]).count();
+        row_length += (0..pos.x).rev()
+            .take_while(|&x| !self.tiles[x as usize][pos.y as usize]).count();
+        row_length += ((pos.x+1)..self.width as i16)
+            .take_while(|&x| !self.tiles[x as usize][pos.y as usize]).count();
+        row_length
+    }
+
+    fn _compute_neighbors(&self) -> Vec<Vec<EmptyTile>> {
+        self.empty_tiles.iter()
+            .map(|p| {
+                Move::iter()
+                    .map(|m| p.moved(m))
+                    .filter(|n| self.is_empty(n))
+                    .map(|n| self.empty_tile_idx(&n))
+                    .collect()
+            }).collect()
+    }
+    
+    fn _compute_best_intersections(&self) -> Vec<Pos> {
+        let mut intersections = self.get_intersections();
+        intersections.sort_by_key(|p| Reverse(self.get_row_length(p)));
+        intersections.into_iter().take(10).collect()
     }
 }
 

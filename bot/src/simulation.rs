@@ -72,6 +72,16 @@ fn follow_path(pos: &Pos, path: &Vec<Pos>) -> Option<Move> {
     })
 }
 
+#[derive(Debug, PartialEq, Clone)]
+enum ThreatStorage {
+    Owl { target_last_seen: Pos },
+    Hawk {
+        target_last_seen: Option<Pos>,
+        idle_position: Option<Pos>,
+        idle_rounds: i32,
+    },
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct Threat {
     pub pos: Pos,
@@ -80,26 +90,21 @@ pub struct Threat {
     pub style: Style,
     spawn: Pos,
     seed: usize,
-    /// Used by some threat styles to remember a position.
-    pos_storage: Option<Pos>,
+    /// Used by some threat styles to remember things.
+    storage: Option<ThreatStorage>,
 }
 
 impl Threat {
     pub fn new(pos: Pos, style: Style, dir: Move) -> Self {
         let mut t = Threat {
-            pos, style, dir, spawn: pos.clone(), seed: 0, pos_storage: None
+            pos, style, dir, spawn: pos.clone(), seed: 0, storage: None
         };
         t._next_rand();  // The initial direction was generated via randomness
         t
     }
 
-    fn can_predict(style: Style) -> bool {
-        // TODO: Remove this fn once all are supported!
-        match style {
-            Style::Goldfish | Style::Bull | Style::Deer | Style::Shark
-                | Style::Owl => true,
-            _ => false,
-        }
+    fn can_predict(_style: Style) -> bool {
+        true  // TODO: remove checks for this
     }
 
     /// Returns whether we know how to simulate this threat.
@@ -168,20 +173,79 @@ impl Threat {
                 // to be the case when testing.
                 let tick = tick - 1;
                 if tick % 60 < 10 {
-                    // Note: _lastTargetSeenPosition reads direction from
+                    // Note: _lastTargetSeenPosition reads directly from
                     // character.position, so it is the current position.
-                    self.pos_storage = Some(*player);
+                    self.storage = Some(
+                        ThreatStorage::Owl { target_last_seen: *player }
+                    );
                 }
-                self.pos_storage.and_then(|target| {
+                self.storage.as_ref().and_then(|storage| {
+                    let target = match storage {
+                        ThreatStorage::Owl { target_last_seen } => target_last_seen,
+                        _ => unreachable!(),
+                    };
                     let path = grid.get_path(&self.pos, &target);
                     follow_path(&self.pos, &path)
                 })
             },
-            _ => {
-                assert!(!Threat::can_predict(self.style));
-                None  // TODO: implement other styles
+            Style::Hawk => {
+                if self.storage.is_none() {
+                    self.storage = Some(ThreatStorage::Hawk {
+                        target_last_seen: None,
+                        idle_position: None,
+                        idle_rounds: 0,
+                    });
+                }
+                let mut storage = self.storage.clone().unwrap();
+                let action;
+                if let ThreatStorage::Hawk {
+                    target_last_seen, idle_position, idle_rounds
+                } = &mut storage {
+                    // Note: 'isPlayerInDirectLineOfSight' reads directly from
+                    // character.position, i.e. the current position.
+                    if grid.grid.line_of_sight(&self.pos, player) {
+                        *target_last_seen = Some(*player);
+                        *idle_position = None;
+                        *idle_rounds = 0;
+                    }
+                    action = if let Some(target) = target_last_seen {
+                        if self.pos == *target {
+                            *target_last_seen = None;
+                            *idle_rounds = 0;
+                            None
+                        } else {
+                            let path = grid.get_path(&self.pos, &target);
+                            follow_path(&self.pos, &path)
+                        }
+                    } else if let Some(target) = idle_position {
+                        if self.pos == *target {
+                            *idle_position = None;
+                            *idle_rounds = -5;
+                            None
+                        } else {
+                            let path = grid.get_path(&self.pos, &target);
+                            follow_path(&self.pos, &path)
+                        }
+                    } else {
+                        *idle_rounds += 1;
+                        if *idle_rounds > 5 {
+                            *idle_position = Some(self.get_random_intersection(&grid.grid));
+                            *idle_rounds = 0;
+                        }
+                        None
+                    };
+                } else { unreachable!(); }
+                self.storage = Some(storage);
+                action
             },
         }
+    }
+
+    fn get_random_intersection(&mut self, grid: &Grid) -> Pos {
+        assert!(!grid.best_intersections.is_empty());
+        let o = self._next_rand() * grid.best_intersections.len() as f64;
+        let idx = o.floor();
+        grid.best_intersections[idx as usize]
     }
 
     fn move_every_n_ticks(tick: usize) -> usize {
@@ -396,13 +460,13 @@ mod tests {
             .collect();
         Game {
             grid: make_grid(vec![
-                "####",
-                "#  #",
-                "#  #",
-                "####",
-                "#  #",
-                "#  #",
-                "####",
+                "#####",
+                "#   #",
+                "#   #",
+                "#####",
+                "#   #",
+                "#   #",
+                "#####",
             ]),
             alive: true,
             pos: Pos { x: 1, y: 1 },

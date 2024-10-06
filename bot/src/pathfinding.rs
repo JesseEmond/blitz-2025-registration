@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::collections::VecDeque;
 
 use crate::grid::{EmptyTile, Grid, Move, Pos};
@@ -112,7 +113,7 @@ impl SlowAggressivePathfinder {
 
 impl Pathfinder for SlowAggressivePathfinder {
     fn next_node(&mut self, state: &PathfinderState) -> Option<Node> {
-        self.unseen.sort_by(|&a, &b| state.cost[b].cmp(&state.cost[a]));
+        self.unseen.sort_by_key(|&a| Reverse(state.cost[a]));
         self.unseen.pop()
     }
 

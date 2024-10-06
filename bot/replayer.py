@@ -49,4 +49,4 @@ if __name__ == "__main__":
             if bot is None:
                 start_state = rust_interop.to_rust_game_state(tick.state)
                 bot = devnull_bot.DevnullBot(start_state)
-            replay(bot, ticks)
+            replay(bot, tick)
