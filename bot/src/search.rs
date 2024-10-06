@@ -105,7 +105,7 @@ pub struct Bot {
 impl Bot {
     /// Update state based on 'game', pick our next move, apply it locally.
     pub fn pick_move(&mut self, game: &Game) -> Option<Move> {
-        self.state.update_observed_state(game);
+        self.state.verify_predictions(game);
         let strategy = MinimaxSearch { max_depth: 9 };
         let picked = strategy.choose_move(&self.state, &ThreatsAreFarEval{});
         self.state.simulate_tick(SimulationAction::Move { direction: picked });
@@ -114,13 +114,13 @@ impl Bot {
 
     /// Update state based on 'game', then apply given move.
     pub fn simulate(&mut self, game: &Game, direction: Option<Move>) {
-        self.state.update_observed_state(game);
+        self.state.verify_predictions(game);
         self.state.simulate_tick(SimulationAction::Move { direction });
     }
 
     /// Update state based on 'game', then apply given MoveTo action.
     pub fn simulate_move_to(&mut self, game: &Game, position: &Pos) {
-        self.state.update_observed_state(game);
+        self.state.verify_predictions(game);
         self.state.simulate_tick(SimulationAction::MoveTo { position: *position });
     }
 }

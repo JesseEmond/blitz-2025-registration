@@ -103,24 +103,14 @@ impl Threat {
         t
     }
 
-    fn can_predict(_style: Style) -> bool {
-        true  // TODO: remove checks for this
-    }
-
     /// Returns whether we know how to simulate this threat.
     fn simulate(&mut self, tick: usize, player: &Pos, player_prev: &Pos,
-                grid: &PathfindingGrid) -> bool {
-        if !Self::moves_on_tick(tick) {
-            return false;
-        }
+                grid: &PathfindingGrid) {
+        if !Self::moves_on_tick(tick) { return; }
         if let Some(m) = self.next_move(tick, player, player_prev, grid) {
-            assert!(Threat::can_predict(self.style));
             self.pos = self.pos.moved(m);
             self.dir = m;
         }
-        // TODO: remove return once we have 100% predictions
-        // If we can predict it, we have enforced above that we have handled it.
-        Threat::can_predict(self.style)
     }
 
     fn next_move(&mut self, tick: usize, player: &Pos, player_prev: &Pos,
@@ -339,13 +329,11 @@ impl State {
             }
             self.check_game_over();
         }
+        // TODO: remove handling of enemy turns -- can fully predict anyway
         self.turn += 1;
-        // While we know how to simulate a threat, skip it.
         while !self.is_turn_end() {
-            if !self.threats[self.turn - 1].simulate(
-                self.tick, &self.pos, &self.prev_pos, &self.grid) {
-                break;
-            }
+            self.threats[self.turn - 1].simulate(
+                self.tick, &self.pos, &self.prev_pos, &self.grid);
             self.turn += 1;
         }
         if self.is_turn_end() {
@@ -386,10 +374,8 @@ impl State {
         }
         for t in &mut self.threats {
             let prev_pos = t.pos;
-            if t.simulate(self.tick, &self.pos, &self.prev_pos, &self.grid) {
-                // TODO: remove once confident in preditions
-                println!("{:?} will move from {:?} to {:?}", t.style, prev_pos, t.pos);
-            }
+            t.simulate(self.tick, &self.pos, &self.prev_pos, &self.grid);
+            println!("{:?} will move from {:?} to {:?}", t.style, prev_pos, t.pos);
         }
         // Some threats only see the character position from the prev tick, see
         // https://github.com/JesseEmond/blitz-2025-registration/blob/dbe84ed80ebc441d071d5e6eb0d6a476d580a9e2/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/world.decomp.js#L206-L208
@@ -398,27 +384,17 @@ impl State {
     }
 
     /// Update our state based on what the server sent back.
-    pub fn update_observed_state(&mut self, game: &Game) {
-        // TODO: Replace with only asserts once we perfectly predict the game
+    pub fn verify_predictions(&self, game: &Game) {
         println!("Tick: {}", self.tick);
         println!("Player: {:?}", self.pos);
         assert_eq!(self.tick, game.tick, "tick");
         assert_eq!(self.pos, game.pos, "pos");
-        if self.game_over != !game.alive {
-            self.game_over = !game.alive;
-            println!("[TODO] Learn to predict all threats");
-        }
-        self.threats.iter_mut().zip(game.threats.iter()).for_each(|(threat, actual)| {
+        assert_eq!(self.game_over, !game.alive, "alive");
+        self.threats.iter().zip(game.threats.iter()).for_each(|(threat, actual)| {
             assert_eq!(threat.style, actual.style);
-            if Threat::can_predict(threat.style) {
-                assert_eq!(threat.dir, actual.dir, "{:?} dir (@{:?})",
-                           threat.style, actual.pos);
-                assert_eq!(threat.pos, actual.pos, "{:?} pos", threat.style);
-            } else {
-                println!("[TODO] Learn to predict {:?}", threat.style);
-                threat.pos = actual.pos;
-                threat.dir = actual.dir;
-            }
+            assert_eq!(threat.dir, actual.dir, "{:?} dir (@{:?})",
+                       threat.style, actual.pos);
+            assert_eq!(threat.pos, actual.pos, "{:?} pos", threat.style);
         });
     }
 
@@ -455,7 +431,7 @@ mod tests {
     use super::super::grid::{make_grid};
 
     fn make_test_game() -> Game {
-        let threats = Style::iter().filter(|&s| Threat::can_predict(s))
+        let threats = Style::iter()
             .map(|s| Threat::new(Pos { x: 1, y: 4 }, s, Move::Right))
             .collect();
         Game {
