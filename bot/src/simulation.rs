@@ -285,7 +285,6 @@ pub struct State {
     prev_pos: Pos,
     pub threats: Vec<Threat>,
     pub game_over: bool,
-    turn: usize,  // 0: player turn, 1+: turn for threat idx+1
 }
 
 impl State {
@@ -300,7 +299,6 @@ impl State {
             prev_pos,
             threats: game.threats.clone(),
             game_over: !game.alive,
-            turn: 0,
         };
         state.check_game_over();
         state
@@ -308,57 +306,16 @@ impl State {
 
     pub fn generate_moves(&self) -> Vec<Option<Move>> {
         let mut moves = Vec::new();
-        if self.is_player_turn() {
-            moves.extend(self.grid.grid.available_moves(&self.pos).iter().map(|&m| Some(m)));
-        } else {
-            moves.extend(self.grid.grid.available_moves(&self.threat_turn().pos).iter().map(|&m| Some(m)));
-        }
+        moves.extend(self.grid.grid.available_moves(&self.pos).iter().map(|&m| Some(m)));
         moves.push(None);
         moves
     }
 
-    /// Advances the state by a single turn -- player or threat.
-    /// Predictable turns are auto-applied and auto-advanced.
-    pub fn apply(&mut self, action: Option<Move>) {
-        if let Some(m) = action {
-            if self.is_player_turn() {
-                self.pos = self.pos.moved(m);
-            } else {
-                self.threat_turn_mut().pos = self.threat_turn().pos.moved(m);
-                self.threat_turn_mut().dir = m;
-            }
-            self.check_game_over();
-        }
-        // TODO: remove handling of enemy turns -- can fully predict anyway
-        self.turn += 1;
-        while !self.is_turn_end() {
-            self.threats[self.turn - 1].simulate(
-                self.tick, &self.pos, &self.prev_pos, &self.grid);
-            self.turn += 1;
-        }
-        if self.is_turn_end() {
-            self.tick += 1;
-            self.turn = 0;
-            // Some threats see the pos of the player before it moves. Only
-            // update the player's seen position after we're done with a full
-            // turn.
-            // See 'simulate_tick' for JS code pointers.
-            self.prev_pos = self.pos;
-        }
-    }
-
-    pub fn is_player_turn(&self) -> bool {
-        self.turn == 0
-    }
-
-    /// Similar to 'apply', but directly replicates the server tick logic.
+    /// Simulate one tick from the server-side, applying a player action.
     pub fn simulate_tick(&mut self, action: SimulationAction) {
+        // TODO: When does the server check?
         self.check_game_over();
-        if self.game_over {
-            let killers: Vec<Style> = self.threats.iter().filter(|t| t.pos == self.pos)
-                .map(|t| t.style).collect();
-            println!("Got killed by {:?} on {:?}!", killers, self.pos)
-        }
+        if self.game_over { return; }
         match action {
             SimulationAction::Move { direction } => {
                 if let Some(m) = direction {
@@ -373,9 +330,7 @@ impl State {
             },
         }
         for t in &mut self.threats {
-            let prev_pos = t.pos;
             t.simulate(self.tick, &self.pos, &self.prev_pos, &self.grid);
-            println!("{:?} will move from {:?} to {:?}", t.style, prev_pos, t.pos);
         }
         // Some threats only see the character position from the prev tick, see
         // https://github.com/JesseEmond/blitz-2025-registration/blob/dbe84ed80ebc441d071d5e6eb0d6a476d580a9e2/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/world.decomp.js#L206-L208
@@ -403,25 +358,6 @@ impl State {
             self.game_over = self.threats.iter().any(|t| t.pos == self.pos);
         }
     }
-
-    fn are_threats_moving(&self) -> bool {
-        Threat::moves_on_tick(self.tick)
-    }
-
-    fn is_turn_end(&self) -> bool {
-        !self.are_threats_moving() || self.turn == 1 + self.threats.len()
-    }
-    
-    fn threat_turn(&self) -> &Threat {
-        assert!(self.turn > 0);
-        &self.threats[self.turn - 1]
-    }
-
-    fn threat_turn_mut(&mut self) -> &mut Threat {
-        assert!(self.turn > 0);
-        &mut self.threats[self.turn - 1]
-    }
-
 }
 
 #[cfg(test)]
@@ -461,7 +397,6 @@ mod tests {
             simulated.simulate_tick(SimulationAction::Move { direction });
             applied.apply(direction);
             // All predictable threats, should have moved to next turn.
-            assert!(applied.is_player_turn());
             assert_eq!(simulated.tick, applied.tick);
             assert_eq!(simulated.game_over, applied.game_over);
             assert_eq!(simulated.pos, applied.pos);

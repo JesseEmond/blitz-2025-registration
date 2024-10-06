@@ -52,6 +52,7 @@ impl Search for FirstMoveSearch {
     }
 }
 
+// TODO: Minimax is not needed now that it's a single player game again
 struct MinimaxSearch {
     max_depth: i8,
 }
@@ -62,14 +63,13 @@ impl MinimaxSearch {
         }
         let scores = state.generate_moves().into_iter()
                 .map(|m| self.move_value(state, m, evaluator, depth));
-        let score = if state.is_player_turn() { scores.max() } else { scores.min() };
-        score.unwrap()
+        scores.max().unwrap()  // always maximize, no enemy turns
     }
 
     fn move_value(&self, state: &State, action: Option<Move>,
                   evaluator: &dyn Evaluator, depth: i8) -> Score {
         let mut state = state.clone();
-        state.apply(action);
+        state.simulate_tick(SimulationAction::Move { direction: action });
         self.search(&state, evaluator, depth - 1)
     }
 
