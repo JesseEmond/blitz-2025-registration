@@ -106,7 +106,7 @@ impl Bot {
     /// Update state based on 'game', pick our next move, apply it locally.
     pub fn pick_move(&mut self, game: &Game) -> Option<Move> {
         self.state.verify_predictions(game);
-        let strategy = MinimaxSearch { max_depth: 8 };
+        let strategy = MinimaxSearch { max_depth: 7 };
         let picked = strategy.choose_move(&self.state, &ThreatsAreFarEval{});
         self.state.simulate_tick(SimulationAction::Move { direction: picked });
         picked

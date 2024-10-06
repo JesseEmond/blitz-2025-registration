@@ -6,7 +6,8 @@ use once_cell::sync::Lazy;
 use crate::grid::{Grid, Move, Pos};
 use crate::pathfinding::{get_aggressive_path, PathfindingGrid};
 
-const MAX_TICKS: usize = 2000;
+// TODO: No longer need to precompute this, don't need to be stateless
+const MAX_TICKS: usize = 10000;
 
 pub enum SimulationAction {
     Move { direction: Option<Move> },
