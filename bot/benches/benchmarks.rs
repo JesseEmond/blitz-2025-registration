@@ -3,7 +3,7 @@ use pprof::criterion::{Output, PProfProfiler};
 
 use devnull_bot::grid::{make_grid, Move, Pos};
 use devnull_bot::mcts;
-use devnull_bot::pathfinding::{get_aggressive_path, PathfindingGrid};
+use devnull_bot::pathfinding::{FastAggressivePathfinder, Pathfinder, PathfindingGrid};
 use devnull_bot::search;
 use devnull_bot::simulation;
 use devnull_bot::simulation::Style;
@@ -36,14 +36,20 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         "######################",
     ]);
     c.bench_function("get_aggressive_path 22x15 far", |b| {
-        b.iter(|| get_aggressive_path(
+        b.iter(|| {
+            let mut pathfinder = FastAggressivePathfinder::new(black_box(&grid));
+            pathfinder.pathfind(
                 black_box(&grid), black_box(&Pos { x: 5, y: 1 }),
-                black_box(&Pos { x: 18, y: 13 })));
+                black_box(&Some(Pos { x: 18, y: 13 })))
+        });
     });
     c.bench_function("get_aggressive_path 22x15 close", |b| {
-        b.iter(|| get_aggressive_path(
+        b.iter(|| {
+            let mut pathfinder = FastAggressivePathfinder::new(black_box(&grid));
+            pathfinder.pathfind(
                 black_box(&grid), black_box(&Pos { x: 5, y: 1 }),
-                black_box(&Pos { x: 9, y: 1 })));
+                black_box(&Some(Pos { x: 9, y: 1 })))
+        });
     });
     c.bench_function("PathfindingGrid 22x15 creation", |b| {
         b.iter(|| PathfindingGrid::new(black_box(grid.clone())));

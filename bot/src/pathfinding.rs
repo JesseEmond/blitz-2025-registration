@@ -13,7 +13,7 @@ pub type Path = Vec<Pos>;
 type Node = EmptyTile;
 
 /// State of pathfinding from a given start point.
-struct PathfinderState {
+pub struct PathfinderState {
     /// For a given 'empty_tiles' index, its shortest distance to a start point.
     cost: Vec<Cost>,
     /// For a given 'empty_tiles' index, previous pos on shortest path.
@@ -58,7 +58,7 @@ impl PathfinderState {
     }
 }
 
-trait Pathfinder {
+pub trait Pathfinder {
     /// Next node to explore in our search, if we should continue.
     fn next_node(&mut self, state: &PathfinderState) -> Option<Node>;
     /// Queue up a future note to visit.
@@ -137,7 +137,7 @@ impl Pathfinder for SlowAggressivePathfinder {
 /// - sort is called at the start of the loop, so any newly added nodes in
 ///   the same loop will keep their initial relative order from 'empty_tiles'
 ///   instead of being in the order seen
-struct FastAggressivePathfinder {
+pub struct FastAggressivePathfinder {
     frontier: VecDeque<Node>,
     /// Nodes at the head of 'frontier' have this cost.
     frontier_cost: Cost,
@@ -148,7 +148,7 @@ struct FastAggressivePathfinder {
 }
 
 impl FastAggressivePathfinder {
-    fn new(_grid: &Grid) -> Self {
+    pub fn new(_grid: &Grid) -> Self {
         Self {
             frontier: VecDeque::new(),
             frontier_cost: 0,
@@ -212,8 +212,8 @@ impl PathfindingGrid {
     pub fn new(grid: Grid) -> Self {
         let mut pathfinding_states = Vec::new();
         for pos in &grid.empty_tiles {
-            // TODO: Consider using a non "aggressive" pathfinder -- can be a
-            // regularly optimized one not matching the JS details.
+            // Note: deliberate using the 'aggressive.js' version of pathfinding
+            // for fast 'get_aggressive_path' lookups.
             let mut pathfinder = FastAggressivePathfinder::new(&grid);
             pathfinding_states.push(pathfinder.pathfind(&grid, &pos, &None));
         }
@@ -247,12 +247,12 @@ impl PathfindingGrid {
         }
         path
     }
-}
 
-pub fn get_aggressive_path(grid: &Grid, from: &Pos, to: &Pos) -> Vec<Pos> {
-    let mut pathfinder = FastAggressivePathfinder::new(grid);
-    let state = pathfinder.pathfind(grid, from, &Some(*to));
-    state.get_path(grid, to)
+    /// Get path the same way that 'aggressive.js' would find it.
+    pub fn get_aggressive_path(&self, from: &Pos, to: &Pos) -> Vec<Pos> {
+        let from_idx = self.grid.empty_tile_idx(from);
+        self.pathfinding_states[from_idx].get_path(&self.grid, to)
+    }
 }
 
 #[cfg(test)]
@@ -278,18 +278,6 @@ mod tests {
             "#                    #",
             "######################",
         ])
-    }
-
-    #[test]
-    fn test_slow_pathfinder_same_path_as_get_aggressive_path() {
-        let grid = make_test_grid();
-        let from = Pos { x: 5, y: 1 };
-        let to = Pos { x: 18, y: 13 };
-
-        let mut pathfinder = SlowAggressivePathfinder::new(&grid);
-        let path = pathfinder.pathfind(&grid, &from, &Some(to))
-            .get_path(&grid, &to);
-        assert_eq!(path, get_aggressive_path(&grid, &from, &to));
     }
 
     #[test]

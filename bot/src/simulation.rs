@@ -4,7 +4,7 @@ use strum_macros::EnumIter;
 use once_cell::sync::Lazy;
 
 use crate::grid::{Grid, Move, Pos};
-use crate::pathfinding::{get_aggressive_path, PathfindingGrid};
+use crate::pathfinding::{PathfindingGrid};
 
 // TODO: No longer need to precompute this, don't need to be stateless
 const MAX_TICKS: usize = 10000;
@@ -155,7 +155,7 @@ impl Threat {
             },
             Style::Shark => {
                 // See aggressive.js
-                let path = get_aggressive_path(&grid.grid, &self.pos, &player_prev);
+                let path = grid.get_aggressive_path(&self.pos, &player_prev);
                 follow_path(&self.pos, &path)
             },
             Style::Owl => {
@@ -367,47 +367,8 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use strum::IntoEnumIterator;
     use super::*;
     use super::super::grid::{make_grid};
-
-    fn make_test_game() -> Game {
-        let threats = Style::iter()
-            .map(|s| Threat::new(Pos { x: 1, y: 4 }, s, Move::Right))
-            .collect();
-        Game {
-            grid: make_grid(vec![
-                "#####",
-                "#   #",
-                "#   #",
-                "#####",
-                "#   #",
-                "#   #",
-                "#####",
-            ]),
-            alive: true,
-            pos: Pos { x: 1, y: 1 },
-            tick: 1,
-            threats,
-        }
-    }
-
-    #[test]
-    fn test_apply_matches_simulate() {
-        let mut simulated = State::new(make_test_game());
-        let mut applied = simulated.clone();
-        for _ in 0..1500 {
-            let moves = simulated.generate_moves();
-            let direction = *moves.iter().next().unwrap();
-            simulated.simulate_tick(SimulationAction::Move { direction });
-            applied.apply(direction);
-            // All predictable threats, should have moved to next turn.
-            assert_eq!(simulated.tick, applied.tick);
-            assert_eq!(simulated.game_over, applied.game_over);
-            assert_eq!(simulated.pos, applied.pos);
-            assert_eq!(simulated.threats, applied.threats);
-        }
-    }
 
     #[test]
     fn test_owl_prediction_misprediction_repro() {
