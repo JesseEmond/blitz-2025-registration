@@ -54,25 +54,6 @@ pub enum Style {
     Hawk,
 }
 
-fn follow_path(pos: &Pos, path: &Vec<Pos>) -> Option<Move> {
-    if path.is_empty() {
-        return None;
-    }
-    let next = path[0];
-    assert!(next != *pos);
-    assert!(pos.manhattan_dist(&next) <= 1);
-    Some(if next.x > pos.x {
-        Move::Right
-    } else if next.x < pos.x {
-        Move::Left
-    } else if next.y < pos.y {
-        Move::Up
-    } else {
-        assert!(next.y > pos.y);
-        Move::Down
-    })
-}
-
 #[derive(Debug, PartialEq, Clone)]
 enum ThreatStorage {
     Owl { target_last_seen: Pos },
@@ -155,8 +136,7 @@ impl Threat {
             },
             Style::Shark => {
                 // See aggressive.js
-                let path = grid.get_aggressive_path(&self.pos, &player_prev);
-                follow_path(&self.pos, &path)
+                grid.get_aggressive_next_move(&self.pos, &player_prev)
             },
             Style::Owl => {
                 // Not fully sure why, but this is looking at the previous tick.
@@ -175,8 +155,7 @@ impl Threat {
                         ThreatStorage::Owl { target_last_seen } => target_last_seen,
                         _ => unreachable!(),
                     };
-                    let path = grid.get_path(&self.pos, &target);
-                    follow_path(&self.pos, &path)
+                    grid.get_pathfinding_next_move(&self.pos, &target)
                 })
             },
             Style::Hawk => {
@@ -205,8 +184,7 @@ impl Threat {
                             *idle_rounds = 0;
                             None
                         } else {
-                            let path = grid.get_path(&self.pos, &target);
-                            follow_path(&self.pos, &path)
+                            grid.get_pathfinding_next_move(&self.pos, &target)
                         }
                     } else if let Some(target) = idle_position {
                         if self.pos == *target {
@@ -214,8 +192,7 @@ impl Threat {
                             *idle_rounds = -5;
                             None
                         } else {
-                            let path = grid.get_path(&self.pos, &target);
-                            follow_path(&self.pos, &path)
+                            grid.get_pathfinding_next_move(&self.pos, &target)
                         }
                     } else {
                         *idle_rounds += 1;
@@ -328,8 +305,7 @@ impl State {
                 }
             },
             SimulationAction::MoveTo { position } => {
-                let path = self.grid.get_path(&self.pos, &position);
-                if let Some(m) = follow_path(&self.pos, &path) {
+                if let Some(m) = self.grid.get_pathfinding_next_move(&self.pos, &position) {
                     self.pos = self.pos.moved(m);
                 }
             },

@@ -206,6 +206,12 @@ pub struct PathfindingGrid {
     pub grid: Grid,
     /// Per-empty tile precomputed pathfinding information.
     pathfinding_states: Vec<PathfinderState>,
+    /// For each empty tile source, per-empty-tile target next move, when code
+    /// is using 'utils/pathfinding.js'.
+    move_lookup_pathfinding: Vec<Vec<Option<Move>>>,
+    /// For each empty tile source, per-empty-tile target next move, when code
+    /// is using 'aggressive.js' pathfinding.
+    move_lookup_aggressive: Vec<Vec<Option<Move>>>,
 }
 
 impl PathfindingGrid {
@@ -217,7 +223,25 @@ impl PathfindingGrid {
             let mut pathfinder = FastAggressivePathfinder::new(&grid);
             pathfinding_states.push(pathfinder.pathfind(&grid, &pos, &None));
         }
-        Self { grid, pathfinding_states }
+        let mut precomputed = Self {
+            grid, pathfinding_states,
+            // The following are easier to compute using methods.
+            move_lookup_pathfinding: Vec::new(),
+            move_lookup_aggressive: Vec::new(),
+        };
+        for from in &precomputed.grid.empty_tiles {
+            let mut pathfinding_lookup = Vec::new();
+            let mut aggressive_lookup = Vec::new();
+            for to in &precomputed.grid.empty_tiles {
+                pathfinding_lookup.push(
+                    follow_path(from, &precomputed.get_path(from, to)));
+                aggressive_lookup.push(
+                    follow_path(from, &precomputed.get_aggressive_path(from, to)));
+            }
+            precomputed.move_lookup_pathfinding.push(pathfinding_lookup);
+            precomputed.move_lookup_aggressive.push(aggressive_lookup);
+        }
+        precomputed
     }
 
     /// Get path following the logic of utils/pathfinding.js
@@ -253,7 +277,39 @@ impl PathfindingGrid {
         let from_idx = self.grid.empty_tile_idx(from);
         self.pathfinding_states[from_idx].get_path(&self.grid, to)
     }
+
+    pub fn get_pathfinding_next_move(&self, from: &Pos, to: &Pos) -> Option<Move> {
+        let from_idx = self.grid.empty_tile_idx(from);
+        let to_idx = self.grid.empty_tile_idx(to);
+        self.move_lookup_pathfinding[from_idx][to_idx]
+    }
+
+    pub fn get_aggressive_next_move(&self, from: &Pos, to: &Pos) -> Option<Move> {
+        let from_idx = self.grid.empty_tile_idx(from);
+        let to_idx = self.grid.empty_tile_idx(to);
+        self.move_lookup_aggressive[from_idx][to_idx]
+    }
 }
+
+pub fn follow_path(pos: &Pos, path: &Vec<Pos>) -> Option<Move> {
+    if path.is_empty() {
+        return None;
+    }
+    let next = path[0];
+    assert!(next != *pos);
+    assert!(pos.manhattan_dist(&next) <= 1);
+    Some(if next.x > pos.x {
+        Move::Right
+    } else if next.x < pos.x {
+        Move::Left
+    } else if next.y < pos.y {
+        Move::Up
+    } else {
+        assert!(next.y > pos.y);
+        Move::Down
+    })
+}
+
 
 #[cfg(test)]
 mod tests {
