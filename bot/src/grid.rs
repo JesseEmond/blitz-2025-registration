@@ -122,7 +122,7 @@ impl Grid {
     }
 
     pub fn empty_tile_idx(&self, pos: &Pos) -> usize {
-        assert!(self.is_empty(pos));
+        assert!(self.is_empty(pos), "{:?}", pos);
         self.empty_tiles_lookup[pos.x as usize][pos.y as usize]
     }
 

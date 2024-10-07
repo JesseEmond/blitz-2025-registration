@@ -2,16 +2,20 @@ use crate::grid::{Move, Pos};
 use crate::mcts;
 use crate::simulation::{Game, SimulationAction, State};
 
+// Note that below we implement mcts traits for more than just this file's
+// "MCTS", to allow reuse with variants of "MCTS"
+// (e.g. in unit tests/benchmarks that use a different search budget).
+
 /// Example eval where our both should move right when it can.
 struct MoveRightEval;
-impl mcts::Evaluator<MCTS> for MoveRightEval {
-    fn evaluate(&self, state: &State) -> mcts::Score {
+impl<Spec: mcts::MCTS<State = State>> mcts::Evaluator<Spec> for MoveRightEval {
+    fn evaluate(&self, state: &Spec::State) -> mcts::Score {
         state.pos.x as mcts::Score
     }
 }
 struct MoveRightAliveEval;
-impl mcts::Evaluator<MCTS> for MoveRightAliveEval {
-    fn evaluate(&self, state: &State) -> mcts::Score {
+impl<Spec: mcts::MCTS<State = State>> mcts::Evaluator<Spec> for MoveRightAliveEval {
+    fn evaluate(&self, state: &Spec::State) -> mcts::Score {
         if !state.game_over {
             state.pos.x as mcts::Score
         } else {
@@ -20,9 +24,9 @@ impl mcts::Evaluator<MCTS> for MoveRightAliveEval {
     }
 }
 
-struct ThreatsAreFarEval;
-impl mcts::Evaluator<MCTS> for ThreatsAreFarEval {
-    fn evaluate(&self, state: &State) -> mcts::Score {
+pub struct ThreatsAreFarEval;
+impl<Spec: mcts::MCTS<State = State>> mcts::Evaluator<Spec> for ThreatsAreFarEval {
+    fn evaluate(&self, state: &Spec::State) -> mcts::Score {
         if !state.game_over {
             // TODO: Worth doing a proper pathfinding distance?
             state.threats.iter().map(|t| t.pos.manhattan_dist(&state.pos))
@@ -33,7 +37,18 @@ impl mcts::Evaluator<MCTS> for ThreatsAreFarEval {
     }
 }
 
-type Action = Option<Move>;
+impl<Spec: mcts::MCTS<State = State, Action = Action>>
+mcts::SearchState<Spec> for State {
+    fn generate_actions(&self) -> Vec<Action> {
+        self.generate_moves()
+    }
+    fn apply_action(&mut self, action: Action) {
+        self.simulate_tick(SimulationAction::Move { direction: action });
+    }
+}
+
+
+pub type Action = Option<Move>;
 
 struct MCTS;
 impl mcts::MCTS for MCTS {
@@ -42,15 +57,6 @@ impl mcts::MCTS for MCTS {
     type Evaluator = ThreatsAreFarEval;
     type Budget = mcts::TimeBudget;
     type RolloutPolicy = mcts::RandomPolicy;
-}
-
-impl mcts::SearchState<MCTS> for State {
-    fn generate_actions(&self) -> Vec<Action> {
-        self.generate_moves()
-    }
-    fn apply_action(&mut self, action: Action) {
-        self.simulate_tick(SimulationAction::Move { direction: action });
-    }
 }
 
 pub struct Bot {
