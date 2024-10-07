@@ -70,6 +70,8 @@ pub struct Grid {
     pub empty_tiles_lookup: Vec<Vec<EmptyTile>>,
     /// At an 'empty_tiles' index, neighbor indices.
     neighbors: Vec<Vec<EmptyTile>>,
+    /// At an 'empty_tiles' index, available moves (Move analogous to neighbors).
+    moves: Vec<Vec<Move>>,
     /// Used by hawk (sheriff.js).
     pub best_intersections: Vec<Pos>,
 }
@@ -95,18 +97,18 @@ impl Grid {
             width, height, tiles, empty_tiles, empty_tiles_lookup,
             // The following are easier to compute with 'grid' helper functions.
             neighbors: Vec::new(),
+            moves: Vec::new(),
             best_intersections: Vec::new(),
         };
         grid.neighbors = grid._compute_neighbors();
+        grid.moves = grid._compute_moves();
         // Note: intersections computation assumes that neighbors are computed.
         grid.best_intersections = grid._compute_best_intersections();
         grid
     }
 
-    pub fn available_moves(&self, from: &Pos) -> Vec<Move> {
-        Move::iter()
-            .filter(|&m| self.is_empty(&from.moved(m)))
-            .collect()
+    pub fn available_moves(&self, from: &Pos) -> &Vec<Move> {
+        &self.moves[self.empty_tile_idx(from) as usize]
     }
 
     pub fn get_neighbors(&self, from: EmptyTile) -> impl Iterator<Item = EmptyTile> + '_ {
@@ -169,6 +171,15 @@ impl Grid {
                     .map(|m| p.moved(m))
                     .filter(|n| self.is_empty(n))
                     .map(|n| self.empty_tile_idx(&n))
+                    .collect()
+            }).collect()
+    }
+
+    fn _compute_moves(&self) -> Vec<Vec<Move>> {
+        self.empty_tiles.iter()
+            .map(|p| {
+                Move::iter()
+                    .filter(|&m| self.is_empty(&p.moved(m)))
                     .collect()
             }).collect()
     }
