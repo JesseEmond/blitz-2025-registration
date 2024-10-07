@@ -1,5 +1,6 @@
 use rand::seq::SliceRandom;
 use crate::grid::{Move, Pos};
+use crate::mcts;
 use crate::simulation::{Game, SimulationAction, State};
 
 type Score = i32;
@@ -98,6 +99,34 @@ impl Search for MinimaxSearch {
     }
 }
 
+type Action = Option<Move>;
+
+struct MCTS;
+impl mcts::MCTS for MCTS {
+    type Action = Action;
+    type State = State;
+    type Evaluator = ThreatsAreFarEval;
+    // TODO: Use budget type that takes into account time & memory
+    type Budget = mcts::MaxEvalCallsBudget;
+    type RolloutPolicy = mcts::RandomPolicy;
+}
+
+// TODO: Remove once we can get rid of non-mcts 'Evaluator'
+impl<E> mcts::Evaluator<MCTS> for E where E: Evaluator {
+    fn evaluate(&self, state: &State) -> mcts::Score {
+        self.evaluate(state) as mcts::Score
+    }
+}
+
+impl mcts::SearchState<MCTS> for State {
+    fn generate_actions(&self) -> Vec<Action> {
+        self.generate_moves()
+    }
+    fn apply_action(&mut self, action: Action) {
+        self.simulate_tick(SimulationAction::Move { direction: action });
+    }
+}
+
 pub struct Bot {
     pub state: State,
 }
@@ -108,6 +137,18 @@ impl Bot {
         self.state.verify_predictions(game);
         let strategy = MinimaxSearch { max_depth: 7 };
         let picked = strategy.choose_move(&self.state, &ThreatsAreFarEval{});
+
+        // TODO: Algorithm definition should be within the mcts namespace
+        // From https://arxiv.org/pdf/1208.4692 , this is like iterative
+        // sampling.
+        // let simulate = mcts::Simulate::<MCTS>::new(mcts::RandomPolicy {});
+        // let params = mcts::SearchParams::<MCTS>::new(
+        //     mcts::MaxEvalCallsBudget::new(5000),
+        //     ThreatsAreFarEval {});
+        // let mut algorithm = mcts::Algorithm::<MCTS>::new(Box::new(simulate), params);
+        // let results = algorithm.search(&self.state);
+        // let picked = results.next_action().expect("search empty results");
+
         self.state.simulate_tick(SimulationAction::Move { direction: picked });
         picked
     }

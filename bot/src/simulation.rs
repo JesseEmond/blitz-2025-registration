@@ -306,10 +306,14 @@ impl State {
     }
 
     pub fn generate_moves(&self) -> Vec<Option<Move>> {
-        let mut moves = Vec::new();
-        moves.extend(self.grid.grid.available_moves(&self.pos).iter().map(|&m| Some(m)));
-        moves.push(None);
-        moves
+        if self.game_over {
+            Vec::new()
+        } else {
+            let mut moves = Vec::new();
+            moves.extend(self.grid.grid.available_moves(&self.pos).iter().map(|&m| Some(m)));
+            moves.push(None);
+            moves
+        }
     }
 
     /// Simulate one tick from the server-side, applying a player action.
