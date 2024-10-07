@@ -91,14 +91,20 @@ impl<Spec: MCTS> Results<Spec> {
 }
 pub struct Stats {
     pub num_evals: usize,
+    pub highest_score_seen: Score,
     pub started_time: Instant,
 }
 impl Stats {
     fn new() -> Self {
-        Self { num_evals: 0, started_time: Instant::now() }
+        Self {
+            num_evals: 0,
+            started_time: Instant::now(),
+            highest_score_seen: Score::MIN,
+        }
     }
-    fn on_evaluation(&mut self) {
-        self.num_evals += 1
+    fn on_evaluation(&mut self, score: Score) {
+        self.num_evals += 1;
+        self.highest_score_seen = self.highest_score_seen.max(score);
     }
 }
 
@@ -170,8 +176,9 @@ impl<Spec: MCTS> SearchParams<Spec> {
     }
     /// Evaluate a given state for its score.
     pub fn evaluate(&mut self, state: &Spec::State) -> Score {
-        self.stats.on_evaluation();
-        self.evaluator.evaluate(state)
+        let score = self.evaluator.evaluate(state);
+        self.stats.on_evaluation(score);
+        score
     }
     /// If we should stop the search (over budget).
     pub fn is_done(&self) -> bool {

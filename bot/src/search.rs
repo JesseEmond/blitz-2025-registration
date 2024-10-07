@@ -70,6 +70,8 @@ impl Bot {
             ThreatsAreFarEval {});
         let algorithm = mcts::Algorithm::<MCTS>::new(Box::new(simulate), params);
         let results = algorithm.search(&self.state);
+        println!("Search did {} evals, best score: {}",
+                 results.stats.num_evals, results.stats.highest_score_seen);
         let picked = results.next_action().expect("search empty results");
 
         self.state.simulate_tick(SimulationAction::Move { direction: picked });
