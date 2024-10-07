@@ -5,6 +5,7 @@
 // TODO: split to its own module, put interfaces vs. implementations in diff files
 
 use rand::seq::SliceRandom;
+use std::time::{Duration, Instant};
 
 
 // Components that users must define to use the search.
@@ -55,8 +56,7 @@ pub trait SimulationPolicy<Spec: MCTS> {
 /// Search budget, called onced per evaluation function evaluation to decide if
 /// the search should proceed.
 pub trait SearchBudget {
-    fn on_evaluation(&mut self);
-    fn is_over_budget(&self) -> bool;
+    fn is_over_budget(&self, stats: &Stats) -> bool;
 }
 
 
@@ -71,21 +71,34 @@ impl<Spec: MCTS> Algorithm<Spec> {
         Self { component, params }
     }
 
-    pub fn search(&mut self, state: &Spec::State) -> Results<Spec> {
+    /// Search from a given state. Only called once.
+    pub fn search(mut self, state: &Spec::State) -> Results<Spec> {
         let mut actions = Vec::new();
         while !self.params.is_done() {
             actions = self.component.execute(&mut self.params, &state);
         }
-        Results { actions }
+        Results { stats: self.params.stats, actions }
     }
 }
 pub struct Results<Spec: MCTS> {
+    pub stats: Stats,
     actions: Vec<Spec::Action>,
-    // TODO: add stats here
 }
 impl<Spec: MCTS> Results<Spec> {
     pub fn next_action(&self) -> Option<Spec::Action> {
         self.actions.iter().next().cloned()
+    }
+}
+pub struct Stats {
+    pub num_evals: usize,
+    pub started_time: Instant,
+}
+impl Stats {
+    fn new() -> Self {
+        Self { num_evals: 0, started_time: Instant::now() }
+    }
+    fn on_evaluation(&mut self) {
+        self.num_evals += 1
     }
 }
 
@@ -142,13 +155,14 @@ impl<Spec: MCTS> Simulate<Spec> {
 pub struct SearchParams<Spec: MCTS> {
     budget: Spec::Budget,
     evaluator: Spec::Evaluator,
+    stats: Stats,
     // If set, a rollout that lasts this many steps will be considered terminal
     max_rollout_length: Option<usize>,
 }
 
 impl<Spec: MCTS> SearchParams<Spec> {
     pub fn new(budget: Spec::Budget, evaluator: Spec::Evaluator) -> Self {
-        Self { budget, evaluator, max_rollout_length: None }
+        Self { budget, evaluator, stats: Stats::new(), max_rollout_length: None }
     }
     /// Consider a state terminal if its rollout length lasts this long.
     pub fn set_max_rollout_length(&mut self, length: usize) {
@@ -156,12 +170,12 @@ impl<Spec: MCTS> SearchParams<Spec> {
     }
     /// Evaluate a given state for its score.
     pub fn evaluate(&mut self, state: &Spec::State) -> Score {
-        self.budget.on_evaluation();
+        self.stats.on_evaluation();
         self.evaluator.evaluate(state)
     }
     /// If we should stop the search (over budget).
     pub fn is_done(&self) -> bool {
-        self.budget.is_over_budget()
+        self.budget.is_over_budget(&self.stats)
     }
 }
 
@@ -194,27 +208,24 @@ impl<Spec: MCTS> Yielder<Spec> {
 // Budget implementations 
 
 /// Keep searching until we do N calls to the evaluator function.
-pub struct MaxEvalCallsBudget {
+pub struct EvalCallsBudget {
     pub max_evals: usize,
-    evals: usize,
 }
-
-impl MaxEvalCallsBudget {
-    pub fn new(max_evals: usize) -> Self {
-        Self { evals: 0, max_evals }
+impl SearchBudget for EvalCallsBudget {
+    fn is_over_budget(&self, stats: &Stats) -> bool {
+        stats.num_evals >= self.max_evals
+    }
+}
+/// Search for this much time at most.
+pub struct TimeBudget {
+    pub max_time: Duration,
+}
+impl SearchBudget for TimeBudget {
+    fn is_over_budget(&self, stats: &Stats) -> bool {
+        stats.started_time.elapsed() >= self.max_time
     }
 }
 
-impl SearchBudget for MaxEvalCallsBudget {
-    fn on_evaluation(&mut self) {
-        self.evals += 1;
-    }
-    fn is_over_budget(&self) -> bool {
-        self.evals >= self.max_evals
-    }
-}
-
-// TODO: CPU time budget
 // TODO: RAM usage budget
 // TODO: Combination budget (combine CPU + RAM)
 

@@ -106,8 +106,7 @@ impl mcts::MCTS for MCTS {
     type Action = Action;
     type State = State;
     type Evaluator = ThreatsAreFarEval;
-    // TODO: Use budget type that takes into account time & memory
-    type Budget = mcts::MaxEvalCallsBudget;
+    type Budget = mcts::TimeBudget;
     type RolloutPolicy = mcts::RandomPolicy;
 }
 
@@ -143,9 +142,9 @@ impl Bot {
         // sampling.
         // let simulate = mcts::Simulate::<MCTS>::new(mcts::RandomPolicy {});
         // let params = mcts::SearchParams::<MCTS>::new(
-        //     mcts::MaxEvalCallsBudget::new(5000),
+        //     mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
         //     ThreatsAreFarEval {});
-        // let mut algorithm = mcts::Algorithm::<MCTS>::new(Box::new(simulate), params);
+        // let algorithm = mcts::Algorithm::<MCTS>::new(Box::new(simulate), params);
         // let results = algorithm.search(&self.state);
         // let picked = results.next_action().expect("search empty results");
 
