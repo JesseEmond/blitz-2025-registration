@@ -31,10 +31,12 @@ pub trait MCTS: Sized {
 pub trait SearchState<Spec: MCTS> {
     // TODO: optionally allow apply/undo, for optimization?
     /// Possible actions in this current state.
-    /// Return no actions if this state is terminal.
+    /// Must return actions if the state is not terminal.
     fn generate_actions(&self) -> Vec<Spec::Action>;
     /// Apply the given action, advance the state.
     fn apply_action(&mut self, action: Spec::Action);
+    /// If the state is final and no further actions are possible.
+    fn is_terminal(&self) -> bool;
 }
 
 pub type Score = f32;
@@ -73,24 +75,22 @@ impl<Spec: MCTS> Algorithm<Spec> {
 
     /// Search from a given state. Only called once.
     pub fn search(mut self, state: &Spec::State) -> Results<Spec> {
-        let mut actions = None;
-        while !self.params.is_done() {
-            actions = self.component.execute(&mut self.params, &state);
+        let mut actions = Vec::new();
+        if !state.is_terminal() {
+            while !self.params.is_done() {
+                actions = self.component.execute(&mut self.params, &state);
+            }
         }
         Results { stats: self.params.stats, actions }
     }
 }
 pub struct Results<Spec: MCTS> {
     pub stats: Stats,
-    actions: Option<Vec<Spec::Action>>,
+    actions: Vec<Spec::Action>,
 }
 impl<Spec: MCTS> Results<Spec> {
-    pub fn has_solution(&self) -> bool {
-        !self.actions.is_none()
-    }
     pub fn next_action(&self) -> Option<Spec::Action> {
-        assert!(self.has_solution());
-        self.actions.as_ref().unwrap().iter().next().cloned()
+        self.actions.iter().next().cloned()
     }
 }
 pub struct Stats {
@@ -120,19 +120,23 @@ impl Stats {
 pub trait SearchComponent<Spec: MCTS> {
     /// Executes the component (ensuring to check the budget) at a given state.
     /// Returns the next sequence of actions picked by this component.
-    fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State) -> Option<Vec<Spec::Action>>;
+    fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State) -> Vec<Spec::Action>;
 }
 
-/// Follow a simulation policy until a terminal state, yield the best sequence
-/// seen so far.
+/// Follow a simulation policy until a terminal state or max configured rollout
+/// length, yield the best sequence seen so far.
 pub struct Simulate<Spec: MCTS> {
     policy: Spec::RolloutPolicy,
     yielder: Yielder<Spec>,
 }
-
+impl<Spec: MCTS> Simulate<Spec> {
+    pub fn new(policy: Spec::RolloutPolicy) -> Self {
+        Self { policy, yielder: Yielder::new() }
+    }
+}
 impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
     fn execute(&mut self, params: &mut SearchParams<Spec>,
-               state: &Spec::State) -> Option<Vec<Spec::Action>> {
+               state: &Spec::State) -> Vec<Spec::Action> {
         if params.is_done() {
             return self.yielder.best_actions.clone();
         }
@@ -140,11 +144,12 @@ impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
         let mut actions_seq = Vec::new();
         let mut rollout_len = 0;
         loop {
-            if params.max_rollout_length.map_or(false, |max| rollout_len >= max) {
+            if state.is_terminal() || params.max_rollout_length.map_or(
+                false, |max| rollout_len >= max) {
                 break;
             }
             let actions = state.generate_actions();
-            if actions.is_empty() { break; }
+            assert!(!actions.is_empty(), "Empty actions on non-terminal state");
             let action = self.policy.pick_action(&state, &actions);
             actions_seq.push(action.clone());
             state.apply_action(action);
@@ -154,9 +159,26 @@ impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
     }
 }
 
-impl<Spec: MCTS> Simulate<Spec> {
-    pub fn new(policy: Spec::RolloutPolicy) -> Self {
-        Self { policy, yielder: Yielder::new() }
+/// Repeat a subcomponent a fixed amount of times, return the last iteration's
+/// result.
+pub struct Repeat<Spec: MCTS> {
+    times: usize,
+    invoker: Invoker<Spec>,
+}
+impl<Spec: MCTS> Repeat<Spec> {
+    pub fn new(times: usize, subcomponent: Box<dyn SearchComponent<Spec>>) -> Self {
+        assert!(times > 0);
+        Self { times, invoker: Invoker::new(subcomponent) }
+    }
+}
+impl<Spec: MCTS> SearchComponent<Spec> for Repeat<Spec> {
+    fn execute(&mut self, params: &mut SearchParams<Spec>,
+               state: &Spec::State) -> Vec<Spec::Action> {
+        assert!(self.times > 0);
+        for _ in 0..(self.times-1) {
+            self.invoker.invoke(params, state);
+        }
+        self.invoker.invoke(params, state)
     }
 }
 
@@ -194,25 +216,40 @@ impl<Spec: MCTS> SearchParams<Spec> {
 /// best sequence of actions seen so far.
 pub struct Yielder<Spec: MCTS> {
     pub best_score: Score,
-    pub best_actions: Option<Vec<Spec::Action>>,
+    pub best_actions: Vec<Spec::Action>,
 }
-
 impl<Spec: MCTS> Yielder<Spec> {
+    fn new() -> Self {
+        Self { best_score: Score::MIN, best_actions: Vec::new() }
+    }
     fn yield_best(
         &mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
-        actions: &Vec<Spec::Action>) -> Option<Vec<Spec::Action>> {
+        actions: &Vec<Spec::Action>) -> Vec<Spec::Action> {
         let score = params.evaluate(state);
         if score > self.best_score {
             self.best_score = score;
-            self.best_actions = Some(actions.clone());
+            self.best_actions = actions.clone();
         }
         self.best_actions.clone()
     }
 }
 
-impl<Spec: MCTS> Yielder<Spec> {
-    fn new() -> Self {
-        Self { best_score: Score::MIN, best_actions: None }
+/// INVOKE (fig 2. in arXiv:1208.4692), helper to call a sub-search component.
+/// Ensures that no sub-search algorithm is called when a state is terminal.
+pub struct Invoker<Spec: MCTS> {
+    subcomponent: Box<dyn SearchComponent<Spec>>,
+}
+impl<Spec: MCTS> Invoker<Spec> {
+    fn new(subcomponent: Box<dyn SearchComponent<Spec>>) -> Self {
+        Self { subcomponent }
+    }
+    fn invoke(&mut self, params: &mut SearchParams<Spec>,
+              state: &Spec::State) -> Vec<Spec::Action> {
+        if state.is_terminal() {
+            Vec::new()  // No new actions to follow, we're done.
+        } else {
+            self.subcomponent.execute(params, state)
+        }
     }
 }
 

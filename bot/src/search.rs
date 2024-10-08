@@ -42,6 +42,9 @@ mcts::SearchState<Spec> for State {
     fn generate_actions(&self) -> Vec<Action> {
         self.generate_moves()
     }
+    fn is_terminal(&self) -> bool {
+        self.game_over
+    }
     fn apply_action(&mut self, action: Action) {
         self.simulate_tick(SimulationAction::Move { direction: action });
     }
