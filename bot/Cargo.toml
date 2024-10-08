@@ -14,6 +14,7 @@ strum = "0.26"
 strum_macros = "0.26"
 rand = "0.8.5"
 once_cell = "1.20.1"
+image = { version = "0.25.2", default-features = false, features = ["png"] }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"]   }

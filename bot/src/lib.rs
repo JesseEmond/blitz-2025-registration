@@ -3,6 +3,7 @@
 /// ignore that it can run inside Python.
 
 pub mod grid;
+pub mod map_loader;
 pub mod mcts;
 pub mod pathfinding;
 pub mod search;
