@@ -285,7 +285,7 @@ impl<'a, Spec: MCTS> Invoker<'a, Spec> {
     fn invoke(&mut self, params: &mut SearchParams<Spec>,
               state: &Spec::State, prev_actions: Vec<Spec::Action>) -> Vec<Spec::Action> {
         if state.is_terminal() {
-            Vec::new()  // No new actions to follow, we're done.
+            prev_actions
         } else {
             self.subcomponent.execute(params, state, prev_actions)
         }
@@ -404,7 +404,7 @@ mod tests {
     }
     impl SearchComponent<MockMCTS> for MockComponent {
         fn execute(&mut self, _params: &mut SearchParams<MockMCTS>,
-                   _state: &MockState) -> Vec<FakeAction> {
+                   _state: &MockState, _prev_actions: Vec<FakeAction>) -> Vec<FakeAction> {
             assert!(!self.returns.is_empty());
             self.returns.remove(0)
         }
@@ -448,7 +448,7 @@ mod tests {
         let mut params = SearchParams::<MockMCTS>::new(
             EvalCallsBudget { max_evals: 9999 },
             MockEval {});
-        assert_eq!(step.execute(&mut params, &state), vec![0, 1, 2, 3, 4]);
+        assert_eq!(step.execute(&mut params, &state, vec![]), vec![0, 1, 2, 3, 4]);
     }
 
     #[test]
@@ -477,7 +477,7 @@ mod tests {
         let mut params = SearchParams::<MockMCTS>::new(
             EvalCallsBudget { max_evals: 9999 },
             MockEval {});
-        assert_eq!(step.execute(&mut params, &state),
+        assert_eq!(step.execute(&mut params, &state, vec![]),
                    vec![0, 1, 10, 100, 1000]);
     }
 }
