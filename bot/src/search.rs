@@ -70,14 +70,10 @@ impl Bot {
     /// Update state based on 'game', pick our next move, apply it locally.
     pub fn pick_move(&mut self, game: &Game) -> Option<Move> {
         self.state.verify_predictions(game);
-        // TODO: Algorithm definition should be within the mcts namespace
-        // From https://arxiv.org/pdf/1208.4692 , this is like iterative
-        // sampling.
-        let simulate = mcts::Simulate::<MCTS>::new(mcts::RandomPolicy {});
         let params = mcts::SearchParams::<MCTS>::new(
             mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
             ThreatsAreFarEval {});
-        let algorithm = mcts::Algorithm::<MCTS>::new(Box::new(simulate), params);
+        let algorithm = mcts::sampling_algorithm(params);
         let results = algorithm.search(&self.state);
         println!("Search did {} evals, best score: {}",
                  results.stats.num_evals, results.stats.highest_score_seen);

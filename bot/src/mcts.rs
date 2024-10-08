@@ -63,12 +63,12 @@ pub trait SearchBudget {
 
 
 // Algorithm that drives the search. Made up of composable components.
-pub struct Algorithm<Spec: MCTS> {
-    component: Box<dyn SearchComponent<Spec>>,
+pub struct Algorithm<'a, Spec: MCTS> {
+    component: Box<dyn SearchComponent<Spec> + 'a>,
     params: SearchParams<Spec>,
 }
-impl<Spec: MCTS> Algorithm<Spec> {
-    pub fn new(component: Box<dyn SearchComponent<Spec>>,
+impl<'a, Spec: MCTS> Algorithm<'a, Spec> {
+    pub fn new(component: Box<dyn SearchComponent<Spec> + 'a>,
                params: SearchParams<Spec>) -> Self {
         Self { component, params }
     }
@@ -77,7 +77,7 @@ impl<Spec: MCTS> Algorithm<Spec> {
     pub fn search(mut self, state: &Spec::State) -> Results<Spec> {
         let mut actions = Vec::new();
         if !state.is_terminal() {
-            while !self.params.is_done() {
+            while !self.params.search_is_done() {
                 actions = self.component.execute(&mut self.params, &state);
             }
         }
@@ -137,17 +137,13 @@ impl<Spec: MCTS> Simulate<Spec> {
 impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
     fn execute(&mut self, params: &mut SearchParams<Spec>,
                state: &Spec::State) -> Vec<Spec::Action> {
-        if params.is_done() {
+        if params.search_is_done() {
             return self.yielder.best_actions.clone();
         }
         let mut state = state.clone();
         let mut actions_seq = Vec::new();
         let mut rollout_len = 0;
-        loop {
-            if state.is_terminal() || params.max_rollout_length.map_or(
-                false, |max| rollout_len >= max) {
-                break;
-            }
+        while !params.state_is_done(&state, rollout_len) {
             let actions = state.generate_actions();
             assert!(!actions.is_empty(), "Empty actions on non-terminal state");
             let action = self.policy.pick_action(&state, &actions);
@@ -182,6 +178,38 @@ impl<Spec: MCTS> SearchComponent<Spec> for Repeat<Spec> {
     }
 }
 
+pub struct Step<Spec: MCTS> {
+    invoker: Invoker<Spec>,
+}
+impl<Spec: MCTS> Step<Spec> {
+    pub fn new(subcomponent: Box<dyn SearchComponent<Spec>>) -> Self {
+        Self { invoker: Invoker::new(subcomponent) }
+    }
+}
+impl<Spec: MCTS> SearchComponent<Spec> for Step<Spec> {
+    fn execute(&mut self, params: &mut SearchParams<Spec>,
+               state: &Spec::State) -> Vec<Spec::Action> {
+        let mut rollout_length = 0;
+        let mut actions_taken = Vec::new();
+        let mut state = state.clone();
+        while !params.state_is_done(&state, rollout_length) {
+            let actions = self.invoker.invoke(params, &state);
+            if actions.is_empty() {
+                // Should not normally happen, but might happen if e.g. we went
+                // over the search budget. If so, early exit.
+                assert!(!state.is_terminal());
+                break;
+            }
+            let action = actions.iter().next().cloned().unwrap();
+            actions_taken.push(action.clone());
+            state.apply_action(action);
+            rollout_length += 1;
+        }
+        actions_taken
+    }
+}
+
+
 // Helper for component implementations
 /// Parameters fixed for a search algorithm.
 pub struct SearchParams<Spec: MCTS> {
@@ -207,8 +235,15 @@ impl<Spec: MCTS> SearchParams<Spec> {
         score
     }
     /// If we should stop the search (over budget).
-    pub fn is_done(&self) -> bool {
+    pub fn search_is_done(&self) -> bool {
         self.budget.is_over_budget(&self.stats)
+    }
+    /// If we should stop simulating a state (i.e. terminal/at max rollouts).
+    /// Components that simulate a state (e.g. 'Simulate' or 'Step') should use
+    /// this to check for early-exit due to long rollouts.
+    pub fn state_is_done(&self, state: &Spec::State, rollout_length: usize) -> bool {
+        state.is_terminal() || self.max_rollout_length.map_or(
+            false, |max| rollout_length >= max)
     }
 }
 
@@ -291,3 +326,14 @@ impl<Spec: MCTS> SimulationPolicy<Spec> for RandomPolicy {
 }
 
 // TODO: greedy policy, using evaluator
+
+// Algorithm implementations
+
+/// Sampling algorithm that simulates a random rollout policy over and over.
+pub fn sampling_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
+    params: SearchParams<Spec>) -> Algorithm<'a, Spec> {
+    // From https://arxiv.org/pdf/1208.4692 (7)
+    Algorithm::new(Box::new(Simulate::new(RandomPolicy {})), params)
+}
+
+// TODO: iterative sampling (8)
