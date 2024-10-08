@@ -76,12 +76,10 @@ impl<'a, Spec: MCTS> Algorithm<'a, Spec> {
     /// Search from a given state. Only called once.
     pub fn search(mut self, state: &Spec::State) -> Results<Spec> {
         let mut actions = Vec::new();
-        if !state.is_terminal() {
-            while !self.params.search_is_done() {
-                let prev_actions = Vec::new();
-                actions = self.component.execute(&mut self.params, &state,
-                                                 prev_actions);
-            }
+        while !self.params.search_is_done() {
+            let prev_actions = Vec::new();
+            actions = self.component.execute(&mut self.params, &state,
+                                             prev_actions);
         }
         Results { stats: self.params.stats, actions }
     }
