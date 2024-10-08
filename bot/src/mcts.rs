@@ -78,7 +78,9 @@ impl<'a, Spec: MCTS> Algorithm<'a, Spec> {
         let mut actions = Vec::new();
         if !state.is_terminal() {
             while !self.params.search_is_done() {
-                actions = self.component.execute(&mut self.params, &state);
+                let prev_actions = Vec::new();
+                actions = self.component.execute(&mut self.params, &state,
+                                                 prev_actions);
             }
         }
         Results { stats: self.params.stats, actions }
@@ -120,7 +122,8 @@ impl Stats {
 pub trait SearchComponent<Spec: MCTS> {
     /// Executes the component (ensuring to check the budget) at a given state.
     /// Returns the next sequence of actions picked by this component.
-    fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State) -> Vec<Spec::Action>;
+    fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
+               prev_actions: Vec<Spec::Action>) -> Vec<Spec::Action>;
 }
 
 /// Follow a simulation policy until a terminal state or max configured rollout
@@ -136,12 +139,12 @@ impl<Spec: MCTS> Simulate<Spec> {
 }
 impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
     fn execute(&mut self, params: &mut SearchParams<Spec>,
-               state: &Spec::State) -> Vec<Spec::Action> {
+               state: &Spec::State, prev_actions: Vec<Spec::Action>) -> Vec<Spec::Action> {
         if params.search_is_done() {
             return self.yielder.best_actions.clone();
         }
         let mut state = state.clone();
-        let mut actions_seq = Vec::new();
+        let mut actions_seq = prev_actions;
         let mut rollout_len = 0;
         while !params.state_is_done(&state, rollout_len) {
             let actions = state.generate_actions();
@@ -157,50 +160,51 @@ impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
 
 /// Repeat a subcomponent a fixed amount of times, return the last iteration's
 /// result.
-pub struct Repeat<Spec: MCTS> {
+pub struct Repeat<'a, Spec: MCTS> {
     times: usize,
-    invoker: Invoker<Spec>,
+    invoker: Invoker<'a, Spec>,
 }
-impl<Spec: MCTS> Repeat<Spec> {
-    pub fn new(times: usize, subcomponent: Box<dyn SearchComponent<Spec>>) -> Self {
+impl<'a, Spec: MCTS> Repeat<'a, Spec> {
+    pub fn new(times: usize, subcomponent: Box<dyn SearchComponent<Spec> + 'a>) -> Self {
         assert!(times > 0);
         Self { times, invoker: Invoker::new(subcomponent) }
     }
 }
-impl<Spec: MCTS> SearchComponent<Spec> for Repeat<Spec> {
+impl<Spec: MCTS> SearchComponent<Spec> for Repeat<'_, Spec> {
     fn execute(&mut self, params: &mut SearchParams<Spec>,
-               state: &Spec::State) -> Vec<Spec::Action> {
+               state: &Spec::State, prev_actions: Vec<Spec::Action>) -> Vec<Spec::Action> {
         assert!(self.times > 0);
         for _ in 0..(self.times-1) {
-            self.invoker.invoke(params, state);
+            self.invoker.invoke(params, state, prev_actions.clone());
         }
-        self.invoker.invoke(params, state)
+        self.invoker.invoke(params, state, prev_actions)
     }
 }
 
-pub struct Step<Spec: MCTS> {
-    invoker: Invoker<Spec>,
+pub struct Step<'a, Spec: MCTS> {
+    invoker: Invoker<'a, Spec>,
 }
-impl<Spec: MCTS> Step<Spec> {
-    pub fn new(subcomponent: Box<dyn SearchComponent<Spec>>) -> Self {
+impl<'a, Spec: MCTS> Step<'a, Spec> {
+    pub fn new(subcomponent: Box<dyn SearchComponent<Spec> + 'a>) -> Self {
         Self { invoker: Invoker::new(subcomponent) }
     }
 }
-impl<Spec: MCTS> SearchComponent<Spec> for Step<Spec> {
+impl<Spec: MCTS> SearchComponent<Spec> for Step<'_, Spec> {
     fn execute(&mut self, params: &mut SearchParams<Spec>,
-               state: &Spec::State) -> Vec<Spec::Action> {
+               state: &Spec::State, prev_actions: Vec<Spec::Action>) -> Vec<Spec::Action> {
         let mut rollout_length = 0;
-        let mut actions_taken = Vec::new();
+        let mut actions_taken = prev_actions;
         let mut state = state.clone();
         while !params.state_is_done(&state, rollout_length) {
-            let actions = self.invoker.invoke(params, &state);
+            let actions = self.invoker.invoke(params, &state, actions_taken.clone());
             if actions.is_empty() {
                 // Should not normally happen, but might happen if e.g. we went
                 // over the search budget. If so, early exit.
                 assert!(!state.is_terminal());
                 break;
             }
-            let action = actions.iter().next().cloned().unwrap();
+            assert!(actions.len() > rollout_length);
+            let action = actions[rollout_length].clone();
             actions_taken.push(action.clone());
             state.apply_action(action);
             rollout_length += 1;
@@ -271,19 +275,19 @@ impl<Spec: MCTS> Yielder<Spec> {
 
 /// INVOKE (fig 2. in arXiv:1208.4692), helper to call a sub-search component.
 /// Ensures that no sub-search algorithm is called when a state is terminal.
-pub struct Invoker<Spec: MCTS> {
-    subcomponent: Box<dyn SearchComponent<Spec>>,
+pub struct Invoker<'a, Spec: MCTS> {
+    subcomponent: Box<dyn SearchComponent<Spec> + 'a>,
 }
-impl<Spec: MCTS> Invoker<Spec> {
-    fn new(subcomponent: Box<dyn SearchComponent<Spec>>) -> Self {
+impl<'a, Spec: MCTS> Invoker<'a, Spec> {
+    fn new(subcomponent: Box<dyn SearchComponent<Spec> + 'a>) -> Self {
         Self { subcomponent }
     }
     fn invoke(&mut self, params: &mut SearchParams<Spec>,
-              state: &Spec::State) -> Vec<Spec::Action> {
+              state: &Spec::State, prev_actions: Vec<Spec::Action>) -> Vec<Spec::Action> {
         if state.is_terminal() {
             Vec::new()  // No new actions to follow, we're done.
         } else {
-            self.subcomponent.execute(params, state)
+            self.subcomponent.execute(params, state, prev_actions)
         }
     }
 }
@@ -336,4 +340,144 @@ pub fn sampling_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
     Algorithm::new(Box::new(Simulate::new(RandomPolicy {})), params)
 }
 
-// TODO: iterative sampling (8)
+/// Sampling algorithm that simulates a random rollout policy N times, picks the
+/// move that gave the best-score-so-far, then simulates from the next state.
+pub fn iterative_sampling_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
+    params: SearchParams<Spec>, iterations_per_step: usize) -> Algorithm<'a, Spec> {
+    // From https://arxiv.org/pdf/1208.4692 (8)
+    let simulate = Box::new(Simulate::new(RandomPolicy {}));
+    let repeat = Box::new(Repeat::new(iterations_per_step, simulate));
+    let step = Box::new(Step::new(repeat));
+    Algorithm::new(step, params)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct MockMCTS;
+    impl MCTS for MockMCTS {
+        type Action = FakeAction;
+        type State = MockState;
+        type Evaluator = MockEval;
+        type Budget = EvalCallsBudget;
+        type RolloutPolicy = MockRollout;
+    }
+
+    /// Numbers game, state is a number, actions are additions/subtractions.
+    #[derive(Clone)]
+    struct MockState {
+        number: i32,
+        max_number: Option<i32>,
+        expected_applies: Option<Vec<FakeAction>>,
+    }
+    impl SearchState<MockMCTS> for MockState {
+        fn generate_actions(&self) -> Vec<FakeAction> {
+            vec![-1, 0, 1]
+        }
+        fn apply_action(&mut self, action: FakeAction) {
+            if let Some(expected) = &mut self.expected_applies {
+                assert!(!expected.is_empty(),
+                    "ran out of expected actions to apply. number: {} about to apply: {}",
+                    self.number, action);
+                let applied = expected.remove(0);
+                assert_eq!(action, applied, "expected apply {applied}");
+            }
+            self.number += action;
+        }
+        fn is_terminal(&self) -> bool {
+            if let Some(max) = self.max_number {
+                self.number >= max
+            } else {
+                false
+            }
+        }
+    }
+
+    /// Number to add to 'number'.
+    type FakeAction = i32;
+
+    /// Mock search subcomponent.
+    struct MockComponent {
+        /// Predecided sequence of values to return.
+        returns: Vec<Vec<FakeAction>>,
+    }
+    impl SearchComponent<MockMCTS> for MockComponent {
+        fn execute(&mut self, _params: &mut SearchParams<MockMCTS>,
+                   _state: &MockState) -> Vec<FakeAction> {
+            assert!(!self.returns.is_empty());
+            self.returns.remove(0)
+        }
+    }
+
+    /// Eval that just returns 'number' -- higher is better.
+    struct MockEval;
+    impl Evaluator<MockMCTS> for MockEval {
+        fn evaluate(&self, state: &MockState) -> Score {
+            state.number as Score
+        }
+    }
+
+    struct MockRollout;
+    impl SimulationPolicy<MockMCTS> for MockRollout {
+        fn pick_action(&self, _state: &MockState, _actions: &Vec<FakeAction>) -> FakeAction {
+            1
+        }
+    }
+
+    #[test]
+    fn test_step_same_subsequence() {
+        // subcomponent that keeps returning the same sequence of actions
+        // (0 to 5)
+        let mock = MockComponent {
+            returns: vec![
+                vec![0, 1, 2, 3, 4, 5],
+                vec![0, 1, 2, 3, 4, 5],
+                vec![0, 1, 2, 3, 4, 5],
+                vec![0, 1, 2, 3, 4, 5],
+                vec![0, 1, 2, 3, 4, 5],
+            ]
+        };
+        let mut step = Box::new(Step::new(Box::new(mock)));
+        let state = MockState {
+            // Should gradually apply each state.
+            expected_applies: Some(vec![0, 1, 2, 3, 4]),
+            number: 0,
+            max_number: Some(0 + 1 + 2 + 3 + 4),  // stop before 5
+        };
+        let mut params = SearchParams::<MockMCTS>::new(
+            EvalCallsBudget { max_evals: 9999 },
+            MockEval {});
+        assert_eq!(step.execute(&mut params, &state), vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_step_subsequence_changes() {
+        // subcomponent that returns the same sequence of actions (0 to 5),
+        // until it switches to a different one (0, 1, 10, 100, 1000, 1000)
+        // after seeing '1'.
+        let mock = MockComponent {
+            returns: vec![
+                vec![0, 1, 2, 3, 4, 5],
+                vec![0, 1, 2, 3, 4, 5],
+                vec![0, 1, 10, 100, 1000, 10000],
+                vec![0, 1, 10, 100, 1000, 10000],
+                vec![0, 1, 10, 100, 1000, 10000],
+                vec![0, 1, 10, 100, 1000, 10000],
+                vec![0, 1, 10, 100, 1000, 10000],
+            ]
+        };
+        let mut step = Box::new(Step::new(Box::new(mock)));
+        let state = MockState {
+            // Should gradually apply each state.
+            expected_applies: Some(vec![0, 1, 10, 100, 1000]),
+            number: 0,
+            max_number: Some(1111),  // stop before 10_000
+        };
+        let mut params = SearchParams::<MockMCTS>::new(
+            EvalCallsBudget { max_evals: 9999 },
+            MockEval {});
+        assert_eq!(step.execute(&mut params, &state),
+                   vec![0, 1, 10, 100, 1000]);
+    }
+}

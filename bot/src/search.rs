@@ -73,7 +73,7 @@ impl Bot {
         let params = mcts::SearchParams::<MCTS>::new(
             mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
             ThreatsAreFarEval {});
-        let algorithm = mcts::sampling_algorithm(params);
+        let algorithm = mcts::iterative_sampling_algorithm(params, 10);
         let results = algorithm.search(&self.state);
         println!("Search did {} evals, best score: {}",
                  results.stats.num_evals, results.stats.highest_score_seen);

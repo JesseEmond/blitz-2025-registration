@@ -298,6 +298,7 @@ impl State {
         // TODO: When does the server check?
         self.check_game_over();
         if self.game_over { return; }
+        assert!(self.grid.grid.is_empty(&self.pos));
         match action {
             SimulationAction::Move { direction } => {
                 if let Some(m) = direction {
@@ -310,6 +311,7 @@ impl State {
                 }
             },
         }
+        assert!(self.grid.grid.is_empty(&self.pos));
         for t in &mut self.threats {
             t.simulate(self.tick, &self.pos, &self.prev_pos, &self.grid);
         }
