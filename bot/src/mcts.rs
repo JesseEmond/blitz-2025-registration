@@ -73,7 +73,7 @@ impl<Spec: MCTS> Algorithm<Spec> {
 
     /// Search from a given state. Only called once.
     pub fn search(mut self, state: &Spec::State) -> Results<Spec> {
-        let mut actions = Vec::new();
+        let mut actions = None;
         while !self.params.is_done() {
             actions = self.component.execute(&mut self.params, &state);
         }
@@ -82,11 +82,15 @@ impl<Spec: MCTS> Algorithm<Spec> {
 }
 pub struct Results<Spec: MCTS> {
     pub stats: Stats,
-    actions: Vec<Spec::Action>,
+    actions: Option<Vec<Spec::Action>>,
 }
 impl<Spec: MCTS> Results<Spec> {
+    pub fn has_solution(&self) -> bool {
+        !self.actions.is_none()
+    }
     pub fn next_action(&self) -> Option<Spec::Action> {
-        self.actions.iter().next().cloned()
+        assert!(self.has_solution());
+        self.actions.as_ref().unwrap().iter().next().cloned()
     }
 }
 pub struct Stats {
@@ -116,7 +120,7 @@ impl Stats {
 pub trait SearchComponent<Spec: MCTS> {
     /// Executes the component (ensuring to check the budget) at a given state.
     /// Returns the next sequence of actions picked by this component.
-    fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State) -> Vec<Spec::Action>;
+    fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State) -> Option<Vec<Spec::Action>>;
 }
 
 /// Follow a simulation policy until a terminal state, yield the best sequence
@@ -128,7 +132,7 @@ pub struct Simulate<Spec: MCTS> {
 
 impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
     fn execute(&mut self, params: &mut SearchParams<Spec>,
-               state: &Spec::State) -> Vec<Spec::Action> {
+               state: &Spec::State) -> Option<Vec<Spec::Action>> {
         if params.is_done() {
             return self.yielder.best_actions.clone();
         }
@@ -190,17 +194,17 @@ impl<Spec: MCTS> SearchParams<Spec> {
 /// best sequence of actions seen so far.
 pub struct Yielder<Spec: MCTS> {
     pub best_score: Score,
-    pub best_actions: Vec<Spec::Action>,
+    pub best_actions: Option<Vec<Spec::Action>>,
 }
 
 impl<Spec: MCTS> Yielder<Spec> {
     fn yield_best(
         &mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
-        actions: &Vec<Spec::Action>) -> Vec<Spec::Action> {
+        actions: &Vec<Spec::Action>) -> Option<Vec<Spec::Action>> {
         let score = params.evaluate(state);
         if score > self.best_score {
             self.best_score = score;
-            self.best_actions = actions.clone();
+            self.best_actions = Some(actions.clone());
         }
         self.best_actions.clone()
     }
@@ -208,7 +212,7 @@ impl<Spec: MCTS> Yielder<Spec> {
 
 impl<Spec: MCTS> Yielder<Spec> {
     fn new() -> Self {
-        Self { best_score: Score::MIN, best_actions: Vec::new() }
+        Self { best_score: Score::MIN, best_actions: None }
     }
 }
 
