@@ -77,11 +77,20 @@ pub struct Threat {
 }
 
 impl Threat {
+    // TODO: Remove after we spot the map on-the-fly
     pub fn new(pos: Pos, style: Style, dir: Move) -> Self {
+        let mut t = Threat::spawn(pos, style);
+        t.dir = dir;
+        t
+    }
+
+    pub fn spawn(pos: Pos, style: Style) -> Self {
         let mut t = Threat {
-            pos, style, dir, spawn: pos.clone(), seed: 0, storage: None
+            pos, style, spawn: pos.clone(), seed: 0, storage: None,
+            // Put a temporary value before generating it
+            dir: Move::Up
         };
-        t._next_rand();  // The initial direction was generated via randomness
+        t.dir = t.get_random_direction();
         t
     }
 
@@ -214,6 +223,13 @@ impl Threat {
         let o = self._next_rand() * grid.best_intersections.len() as f64;
         let idx = o.floor();
         grid.best_intersections[idx as usize]
+    }
+
+    fn get_random_direction(&mut self) -> Move {
+        // Reference:
+        // https://github.com/JesseEmond/blitz-2025-registration/blob/971949e077a937a51844f98a9a02f2855c80cdc4/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L381-L401
+        let idx = (self._next_rand() * 4.0).floor() as usize;
+        [Move::Left, Move::Right, Move::Up, Move::Down][idx]
     }
 
     fn move_every_n_ticks(tick: usize) -> usize {
