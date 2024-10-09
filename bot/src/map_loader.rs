@@ -72,8 +72,9 @@ pub fn load_map(map_name: &str) -> Result<Map> {
     let mut tiles = vec![vec![false; height as usize]; width as usize];
     let mut pos = None;
     let mut threats = vec![];
-    for x in 0..width as usize {
-        for y in 0..height as usize {
+    // Note: doing outer loop ys, inner loop xs to match 'map_loader.js'
+    for y in 0..height as usize {
+        for x in 0..width as usize {
             let p = Pos { x: x as i16, y: y as i16 };
             let pixel = rgb.get_pixel(x as u32, y as u32);
             if let Some(tile_type) = get_best_match(*pixel) {

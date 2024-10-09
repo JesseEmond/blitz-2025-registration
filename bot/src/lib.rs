@@ -10,8 +10,10 @@ pub mod search;
 pub mod simulation;
 
 use pyo3::prelude::*;
+use pyo3::exceptions::PyValueError;
 
-use crate::grid::{Grid, Move, Pos};
+use crate::grid::{debug_print, Grid, Move, Pos};
+use crate::map_loader::{load_all_maps, Map};
 use crate::search::Bot;
 use crate::simulation::{Game, State, Style, Threat};
 
@@ -172,11 +174,6 @@ pub struct DevnullBot {
 }
 #[pymethods]
 impl DevnullBot {
-    #[new]
-    pub fn new(game_state: &GameState) -> Self {
-        Self { bot: Bot { state: State::new(game_state.to_game()) } } 
-    }
-
     pub fn pick_action(&mut self, game_state: &GameState) -> PyResult<Action> {
         Ok(from_move(self.bot.pick_move(&game_state.to_game())))
     }
@@ -218,8 +215,62 @@ fn from_move(m: Option<Move>) -> Action {
     }
 }
 
+/// Verbose check whether an observed game state is a given known map.
+fn check_is_same_map(map: &Map, game_state: &GameState) -> bool {
+    // The following is needlessly thorough/verbose, but helps find bugs in map
+    // loading logic.
+    println!("Is it map {}?", map.name);
+    let game = game_state.to_game();
+    // Catch potential init issues
+    assert_eq!(map.game.tick, game.tick);
+    assert_eq!(map.game.alive, game.alive);
+
+    println!("Pos: {:?} =? {:?}", map.game.pos, game.pos);
+    if map.game.pos != game.pos { return false; }
+
+    println!("Grid dims: {:?} =? {:?}", map.game.grid.dims(), game.grid.dims());
+    if map.game.grid.dims() != game.grid.dims() { return false; }
+
+    println!("# threats: {} =? {}", map.game.threats.len(), game.threats.len());
+    if map.game.threats.len() != game.threats.len() { return false; }
+
+    // Check exact order of threats, too, just to ensure map loading is the
+    // exact same as the server.
+    for (i, (map_t, game_t)) in map.game.threats.iter().zip(game.threats.iter()).enumerate() {
+        println!("- Threat #{}:", i + 1);
+        println!("  - style: {:?} =? {:?}", map_t.style, game_t.style);
+        println!("  -   pos: {:?} =? {:?}", map_t.pos, game_t.pos);
+        println!("  -   dir: {:?} =? {:?}", map_t.dir, game_t.dir);
+        if map_t != game_t { return false; }
+    }
+
+    println!("layout =?");
+    if map.game.grid.tiles != game.grid.tiles {
+        println!("Map:");
+        debug_print(&map.game.grid, vec![]);
+        println!("Game:");
+        debug_print(&game.grid, vec![]);
+        return false;
+    }
+
+    true
+}
+
+#[pyfunction]
+fn create_bot(game_state: &GameState) -> PyResult<DevnullBot> {
+    let maps = load_all_maps()
+        .map_err(|e| PyValueError::new_err(format!("Failed to load known maps: {:?}", e)))?;
+    let map = maps.into_iter().filter(|m| {
+        let is_same = check_is_same_map(m, game_state);
+        if !is_same { println!("Not that one!"); }
+        is_same
+    }).next().ok_or(PyValueError::new_err("Failed to find a matching map!"))?;
+    Ok(DevnullBot { bot: Bot { state: State::new(map.game) } })
+}
+
 #[pymodule]
 fn devnull_bot(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(create_bot, m)?)?;
     m.add_class::<GamePosition>()?;
     m.add_class::<GameDirection>()?;
     m.add_class::<GameThreat>()?;

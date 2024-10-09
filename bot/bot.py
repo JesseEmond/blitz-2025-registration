@@ -14,7 +14,7 @@ class Bot:
 
     def on_first_tick(self, game_message: TeamGameState) -> None:
         state = rust_interop.to_rust_game_state(game_message)
-        self.bot = devnull_bot.DevnullBot(state)
+        self.bot = devnull_bot.create_bot(state)
         self.initialized = True
 
     def get_next_move(self, game_message: TeamGameState):

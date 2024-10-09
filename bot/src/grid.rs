@@ -57,7 +57,7 @@ impl Pos {
 
 pub type EmptyTile = usize;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Grid {
     pub width: u8,
     pub height: u8,
@@ -105,6 +105,10 @@ impl Grid {
         // Note: intersections computation assumes that neighbors are computed.
         grid.best_intersections = grid._compute_best_intersections();
         grid
+    }
+
+    pub fn dims(&self) -> (u8, u8) {
+        (self.width, self.height)
     }
 
     pub fn available_moves(&self, from: &Pos) -> &Vec<Move> {

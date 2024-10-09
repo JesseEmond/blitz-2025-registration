@@ -229,7 +229,7 @@ impl Threat {
         // Reference:
         // https://github.com/JesseEmond/blitz-2025-registration/blob/971949e077a937a51844f98a9a02f2855c80cdc4/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L381-L401
         let idx = (self._next_rand() * 4.0).floor() as usize;
-        [Move::Left, Move::Right, Move::Up, Move::Down][idx]
+        [Move::Up, Move::Down, Move::Left, Move::Right][idx]
     }
 
     fn move_every_n_ticks(tick: usize) -> usize {
@@ -263,6 +263,7 @@ impl Threat {
     }
 }
 
+#[derive(PartialEq)]
 pub struct Game {
     pub tick: usize,
     pub pos: Pos,
