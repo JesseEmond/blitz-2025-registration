@@ -40,6 +40,32 @@ Then:
 
 ## Tools
 
+### Local rust play
+
+You can run a full game locally without needing a local server, since we clone
+the server's logic.
+
+The local version of the game has multiple options (see `--help`), but the
+primary ones useful for development are:
+
+**Run a random map**
+```
+cd bot
+cargo run
+```
+
+**Run a specific map**
+```
+cd bot
+cargo run -- --map challenge1
+```
+
+**Run on all maps**
+```
+cd bot
+cargo run -- --all
+```
+
 ### Save local games
 
 ```

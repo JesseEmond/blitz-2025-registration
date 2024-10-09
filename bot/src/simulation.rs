@@ -9,6 +9,9 @@ use crate::pathfinding::{PathfindingGrid};
 // TODO: No longer need to precompute this, don't need to be stateless
 const MAX_TICKS: usize = 10000;
 
+// Max tick matching the server's. Once tick > this, stop.
+const GAME_END_TICKS: usize = 2000;
+
 pub enum SimulationAction {
     Move { direction: Option<Move> },
     MoveTo { position: Pos },
@@ -280,16 +283,14 @@ impl State {
         // Matches
         // https://github.com/JesseEmond/blitz-2025-registration/blob/dbe84ed80ebc441d071d5e6eb0d6a476d580a9e2/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L467
         let prev_pos = Pos { x: -1, y: -1 };
-        let mut state = State {
+        State {
             grid: Arc::new(PathfindingGrid::new(game.grid)),
             tick: game.tick,
             pos: game.pos,
             prev_pos,
             threats: game.threats.clone(),
             game_over: !game.alive,
-        };
-        state.check_game_over();
-        state
+        }
     }
 
     pub fn generate_moves(&self) -> Vec<Option<Move>> {
@@ -305,8 +306,7 @@ impl State {
 
     /// Simulate one tick from the server-side, applying a player action.
     pub fn simulate_tick(&mut self, action: SimulationAction) {
-        // TODO: When does the server check?
-        self.check_game_over();
+        self.check_game_over();  // Note: server also only checks at the start.
         if self.game_over { return; }
         assert!(self.grid.grid.is_empty(&self.pos));
         match action {
@@ -347,9 +347,12 @@ impl State {
     }
 
     fn check_game_over(&mut self) {
-        if !self.game_over {
-            self.game_over = self.threats.iter().any(|t| t.pos == self.pos);
-        }
+        self.game_over |= self.threats.iter().any(|t| t.pos == self.pos);
+        self.game_over |= self.tick > GAME_END_TICKS;
+    }
+    
+    pub fn score(&self) -> usize {
+        self.tick * 5
     }
 }
 

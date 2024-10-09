@@ -70,17 +70,28 @@ impl Bot {
     /// Update state based on 'game', pick our next move, apply it locally.
     pub fn pick_move(&mut self, game: &Game) -> Option<Move> {
         self.state.verify_predictions(game);
-        let params = mcts::SearchParams::<MCTS>::new(
-            mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
-            ThreatsAreFarEval {});
-        let algorithm = mcts::iterative_sampling_algorithm(params, 10);
-        let results = algorithm.search(&self.state);
+        let results = self.search_next_move();
         println!("Search did {} evals, best score: {}",
                  results.stats.num_evals, results.stats.highest_score_seen);
         let picked = results.next_action().expect("search empty results");
 
         self.state.simulate_tick(SimulationAction::Move { direction: picked });
         picked
+    }
+
+    /// Pick our next move and apply it locally, silently.
+    pub fn self_play_tick(&mut self) {
+        let results = self.search_next_move();
+        let action = results.next_action().expect("empty search");
+        self.state.simulate_tick(SimulationAction::Move { direction: action });
+    }
+
+    fn search_next_move(&mut self) -> mcts::Results<MCTS> {
+        let params = mcts::SearchParams::<MCTS>::new(
+            mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
+            ThreatsAreFarEval {});
+        let algorithm = mcts::iterative_sampling_algorithm(params, 10);
+        algorithm.search(&self.state)
     }
 
     /// Update state based on 'game', then apply given move.
