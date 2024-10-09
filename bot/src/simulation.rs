@@ -77,13 +77,6 @@ pub struct Threat {
 }
 
 impl Threat {
-    // TODO: Remove after we spot the map on-the-fly
-    pub fn new(pos: Pos, style: Style, dir: Move) -> Self {
-        let mut t = Threat::spawn(pos, style);
-        t.dir = dir;
-        t
-    }
-
     pub fn spawn(pos: Pos, style: Style) -> Self {
         let mut t = Threat {
             pos, style, spawn: pos.clone(), seed: 0, storage: None,
@@ -387,8 +380,7 @@ mod tests {
         let player = Pos { x: 20, y: 1 };
         let prev_player = player;  // not important
         let owl = Pos { x: 10, y: 12 };
-        // Direction & seed not important.
-        let mut threat = Threat::new(owl, Style::Owl, Move::Up);
+        let mut threat = Threat::spawn(owl, Style::Owl);
         // On tick 5, we saw player at (7, 7)
         let old_player_seen = Pos { x: 7, y: 7 };
         threat.next_move(5, &old_player_seen, &old_player_seen, &grid);

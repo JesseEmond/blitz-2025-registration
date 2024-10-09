@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use pprof::criterion::{Output, PProfProfiler};
 
-use devnull_bot::grid::{make_grid, Move, Pos};
+use devnull_bot::grid::{make_grid, Pos};
 use devnull_bot::mcts;
 use devnull_bot::pathfinding::{FastAggressivePathfinder, Pathfinder, PathfindingGrid};
 use devnull_bot::search;
@@ -61,12 +61,12 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             alive: true,
             grid: grid.clone(),
             threats: vec![
-                simulation::Threat::new(Pos { x: 15, y: 9 }, Style::Hawk, Move::Up),
-                simulation::Threat::new(Pos { x: 15, y: 10 }, Style::Owl, Move::Up),
-                simulation::Threat::new(Pos { x: 1, y: 1 }, Style::Deer, Move::Up),
-                simulation::Threat::new(Pos { x: 1, y: 12 }, Style::Shark, Move::Up),
-                simulation::Threat::new(Pos { x: 5, y: 7 }, Style::Hawk, Move::Up),
-                simulation::Threat::new(Pos { x: 8, y: 11 }, Style::Hawk, Move::Up),
+                simulation::Threat::spawn(Pos { x: 15, y: 9 }, Style::Hawk),
+                simulation::Threat::spawn(Pos { x: 15, y: 10 }, Style::Owl),
+                simulation::Threat::spawn(Pos { x: 1, y: 1 }, Style::Deer),
+                simulation::Threat::spawn(Pos { x: 1, y: 12 }, Style::Shark),
+                simulation::Threat::spawn(Pos { x: 5, y: 7 }, Style::Hawk),
+                simulation::Threat::spawn(Pos { x: 8, y: 11 }, Style::Hawk),
             ],
         };
         let state = simulation::State::new(game);

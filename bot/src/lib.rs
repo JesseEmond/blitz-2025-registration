@@ -108,6 +108,14 @@ impl GameThreat {
         GameThreat { position, direction, style }
     }
 }
+impl GameThreat {
+    fn to_threat(&self) -> Threat {
+        let mut t = Threat::spawn(
+            self.position.to_pos(), from_style_name(&self.style));
+        t.dir = self.direction.to_move();
+        t
+    }
+}
 
 #[pyclass]
 #[derive(Clone)]
@@ -159,10 +167,7 @@ impl GameState {
             tick: self.tick as usize,
             pos: self.position.to_pos(),
             grid: Grid::new(self.map.width as u8, self.map.height as u8, self.map.tiles.clone()),
-            threats: self.threats.iter().map(
-                |t| Threat::new(t.position.to_pos(), from_style_name(&t.style),
-                                t.direction.to_move()))
-                .collect(),
+            threats: self.threats.iter().map(|t| t.to_threat()).collect(),
             alive: self.alive,
         }
     }
