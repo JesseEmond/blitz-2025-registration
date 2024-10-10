@@ -15,6 +15,8 @@ struct Cli {
     map_selection: MapSelectionArgGroup,
     #[arg(short, long, help = "Parallel evals. Warning: excessive parallelism can hurt search and underestimate scores.")]
     parallelism: Option<usize>,
+    #[arg(long, help = "Print the tick number very N ticks, configured by this argument.")]
+    show_progress: Option<usize>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -45,11 +47,11 @@ fn load_eval_maps(selection: MapSelectionArgGroup) -> map_loader::Result<Vec<Map
     Ok(vec![load_map(&name)?])
 }
 
-fn evaluate_map(map: Map) -> EvalResults {
+fn evaluate_map(map: Map, show_progress: Option<usize>) -> EvalResults {
     println!("Evaluating map {}...", map.name);
     let mut bot = Bot { state: State::new(map.game) };
     while !bot.state.game_over {
-        if bot.state.tick % 100 == 0 {
+        if show_progress.is_some_and(|n| bot.state.tick % n == 0) {
             println!("[{}] tick {}", map.name, bot.state.tick);
         }
         bot.self_play_tick();
@@ -79,9 +81,9 @@ fn main() {
         let other_handles: Vec<thread::JoinHandle<EvalResults>> = other_maps
             .into_iter().map(|map| {
                 let map = map.clone();
-                thread::spawn(move || { evaluate_map(map) })
+                thread::spawn(move || { evaluate_map(map, cli.show_progress) })
             }).collect();
-        _results.push(evaluate_map(map.clone()));
+        _results.push(evaluate_map(map.clone(), cli.show_progress));
         for handle in other_handles {
             _results.push(handle.join().unwrap());
         }
