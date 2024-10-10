@@ -121,9 +121,14 @@ fn main() {
             println!("[{}]: Score {}", name, result.score);
             summary_scores.push(result.score);
         }
+        println!("Min score: {}", summary_scores.iter().min().unwrap());
+        println!("Max score: {}", summary_scores.iter().max().unwrap());
+        let score_sum = summary_scores.iter().sum::<usize>();
+        let score_avg = score_sum as f32 / summary_scores.len() as f32;
+        println!("Avg score: {:.1}", score_avg);
         // Show per-map scores in one simple aggregate line, for quick
         // reporting.
-        println!("Final scores:");
+        println!("Per map scores:");
         println!("{:?}", summary_scores);
     }
 }
