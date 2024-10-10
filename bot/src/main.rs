@@ -1,4 +1,6 @@
 use std::thread;
+use itertools::Itertools;
+use std::time::{Duration, Instant};
 
 use clap::Parser;
 use rand::seq::SliceRandom;
@@ -28,12 +30,27 @@ struct MapSelectionArgGroup {
     map_name: Option<String>,
 }
 
-// TODO: ticks, score, time per tick stats, peak tick time
 struct EvalResults {
+    name: String,
     ticks: usize,
     score: usize,
-    // TODO: time per tick stats
-    // TODO: peak tick time
+    tick_times: Vec<Duration>,
+}
+
+impl EvalResults {
+    fn print(&self) {
+        println!("[{}] Game end! Tick: {}, Score: {}  (times: avg {:.1}ms peak {:.1}ms)",
+                 self.name, self.ticks, self.score,
+                 self.average_tick().as_millis(), self.peak_tick().as_millis());
+    }
+
+    fn peak_tick(&self) -> Duration {
+        *self.tick_times.iter().max().unwrap()
+    }
+
+    fn average_tick(&self) -> Duration {
+        self.tick_times.iter().sum::<Duration>() / self.tick_times.len() as u32
+    }
 }
 
 fn load_eval_maps(selection: MapSelectionArgGroup) -> map_loader::Result<Vec<Map>> {
@@ -50,24 +67,29 @@ fn load_eval_maps(selection: MapSelectionArgGroup) -> map_loader::Result<Vec<Map
 fn evaluate_map(map: Map, show_progress: Option<usize>) -> EvalResults {
     println!("Evaluating map {}...", map.name);
     let mut bot = Bot { state: State::new(map.game) };
+    let mut tick_times = Vec::new();
     while !bot.state.game_over {
         if show_progress.is_some_and(|n| bot.state.tick % n == 0) {
             println!("[{}] tick {}", map.name, bot.state.tick);
         }
+        let time = Instant::now();
         bot.self_play_tick();
+        tick_times.push(time.elapsed());
     }
-    println!("[{}] Game end! Tick: {}, Score: {}", map.name, bot.state.tick,
-             bot.state.score());
-    EvalResults {
+    let results = EvalResults {
+        name: map.name,
         ticks: bot.state.tick,
         score: bot.state.score(),
-    }
+        tick_times,
+    };
+    results.print();
+    results
 }
 
 fn main() {
     let cli = Cli::parse();
     let maps = load_eval_maps(cli.map_selection).expect("Error loading map");
-    let mut _results = Vec::new();
+    let mut results = Vec::new();
     let parallelism = cli.parallelism.unwrap_or(1);
     let cpus = num_cpus::get_physical();
     if parallelism + 1 >= cpus {  // +1 assuming user has other stuff running
@@ -83,10 +105,25 @@ fn main() {
                 let map = map.clone();
                 thread::spawn(move || { evaluate_map(map, cli.show_progress) })
             }).collect();
-        _results.push(evaluate_map(map.clone(), cli.show_progress));
+        results.push(evaluate_map(map.clone(), cli.show_progress));
         for handle in other_handles {
-            _results.push(handle.join().unwrap());
+            results.push(handle.join().unwrap());
         }
     }
-    // TODO: Show aggregated stats when results.len() > 1
+    if results.len() > 1 {
+        let mut summary_scores: Vec<usize> = Vec::new();
+        println!("[SUMMARY]");
+        for (name, mut results) in &results.iter()
+            .sorted_by(|a, b| a.name.cmp(&b.name)).chunk_by(|r| &r.name) {
+            // TODO: Support multiple per-map runs (multiple samples)
+            let result = results.next().unwrap();
+            assert!(results.next().is_none());
+            println!("[{}]: Score {}", name, result.score);
+            summary_scores.push(result.score);
+        }
+        // Show per-map scores in one simple aggregate line, for quick
+        // reporting.
+        println!("Final scores:");
+        println!("{:?}", summary_scores);
+    }
 }
