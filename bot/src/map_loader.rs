@@ -39,6 +39,7 @@ pub enum MapLoadingError {
     NoSpawnPoint,
 }
 
+#[derive(Clone)]
 pub struct Map {
     pub name: String,
     pub game: Game,

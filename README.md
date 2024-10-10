@@ -61,9 +61,16 @@ cargo run -- --map challenge1
 ```
 
 **Run on all maps**
+
+We can eval all maps with some parallelism to speed up the eval.
+
+> [!WARNING]
+> Running with excessive parallelism will artificially reduce search budgets
+> from context switching and underestimate scores.
+
 ```
 cd bot
-cargo run -- --all
+cargo run -- --all --parallelism=8
 ```
 
 ### Save local games

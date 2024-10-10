@@ -259,7 +259,7 @@ impl Threat {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub struct Game {
     pub tick: usize,
     pub pos: Pos,

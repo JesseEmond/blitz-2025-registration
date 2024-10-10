@@ -1,3 +1,5 @@
+use std::thread;
+
 use clap::Parser;
 use rand::seq::SliceRandom;
 
@@ -11,6 +13,8 @@ use devnull_bot::simulation::{State};
 struct Cli {
     #[clap(flatten)]
     map_selection: MapSelectionArgGroup,
+    #[arg(short, long, help = "Parallel evals. Warning: excessive parallelism can hurt search and underestimate scores.")]
+    parallelism: Option<usize>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -46,11 +50,12 @@ fn evaluate_map(map: Map) -> EvalResults {
     let mut bot = Bot { state: State::new(map.game) };
     while !bot.state.game_over {
         if bot.state.tick % 100 == 0 {
-            println!("  tick {}", bot.state.tick);
+            println!("[{}] tick {}", map.name, bot.state.tick);
         }
         bot.self_play_tick();
     }
-    println!("  Game end! Tick: {}, Score: {}", bot.state.tick, bot.state.score());
+    println!("[{}] Game end! Tick: {}, Score: {}", map.name, bot.state.tick,
+             bot.state.score());
     EvalResults {
         ticks: bot.state.tick,
         score: bot.state.score(),
@@ -60,6 +65,26 @@ fn evaluate_map(map: Map) -> EvalResults {
 fn main() {
     let cli = Cli::parse();
     let maps = load_eval_maps(cli.map_selection).expect("Error loading map");
-    let _results: Vec<EvalResults> = maps.into_iter().map(evaluate_map).collect();
+    let mut _results = Vec::new();
+    let parallelism = cli.parallelism.unwrap_or(1);
+    let cpus = num_cpus::get_physical();
+    if parallelism + 1 >= cpus {  // +1 assuming user has other stuff running
+        println!(concat!("[WARNING] Running with parallelism {}, but detected ",
+                         "{} physical cores. Search budget might ",
+                         "unrealistically be reduced and underestimate scores."),
+                 parallelism, cpus);
+    }
+    for chunk_maps in maps.chunks(parallelism) {
+        let (map, other_maps) = chunk_maps.split_first().unwrap();
+        let other_handles: Vec<thread::JoinHandle<EvalResults>> = other_maps
+            .into_iter().map(|map| {
+                let map = map.clone();
+                thread::spawn(move || { evaluate_map(map) })
+            }).collect();
+        _results.push(evaluate_map(map.clone()));
+        for handle in other_handles {
+            _results.push(handle.join().unwrap());
+        }
+    }
     // TODO: Show aggregated stats when results.len() > 1
 }
