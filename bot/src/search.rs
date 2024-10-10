@@ -90,7 +90,7 @@ impl Bot {
         let params = mcts::SearchParams::<MCTS>::new(
             mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
             ThreatsAreFarEval {});
-        let algorithm = mcts::iterative_sampling_algorithm(params, 10);
+        let algorithm = mcts::sampling_algorithm(params);
         algorithm.search(&self.state)
     }
 
