@@ -19,6 +19,8 @@ struct Cli {
     parallelism: Option<usize>,
     #[arg(long, help = "Print the tick number very N ticks, configured by this argument.")]
     show_progress: Option<usize>,
+    #[arg(long, help = "How many times to re-run each map, to average scores.")]
+    samples: Option<usize>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -89,6 +91,10 @@ fn evaluate_map(map: Map, show_progress: Option<usize>) -> EvalResults {
 fn main() {
     let cli = Cli::parse();
     let maps = load_eval_maps(cli.map_selection).expect("Error loading map");
+    let repeats = cli.samples.unwrap_or(1);
+    let maps: Vec<Map> = maps.into_iter()
+        .flat_map(|map| std::iter::repeat(map).take(repeats))
+        .collect();
     let mut results = Vec::new();
     let parallelism = cli.parallelism.unwrap_or(1);
     let cpus = num_cpus::get_physical();
@@ -112,14 +118,21 @@ fn main() {
     }
     if results.len() > 1 {
         let mut summary_scores: Vec<usize> = Vec::new();
-        println!("[SUMMARY]");
-        for (name, mut results) in &results.iter()
+        println!("\n\n[SUMMARY]");
+        for (name, results) in &results.iter()
             .sorted_by(|a, b| a.name.cmp(&b.name)).chunk_by(|r| &r.name) {
-            // TODO: Support multiple per-map runs (multiple samples)
-            let result = results.next().unwrap();
-            assert!(results.next().is_none());
-            println!("[{}]: Score {}", name, result.score);
-            summary_scores.push(result.score);
+            let map_scores: Vec<usize> = results.map(|r| r.score).collect();
+            let score_sum = map_scores.iter().sum::<usize>();
+            let score_avg = score_sum as f32 / map_scores.len() as f32;
+            if map_scores.len() > 1 {
+                println!("[{}]: Score {:.1}  (min: {}, max: {})", name,
+                         score_avg, map_scores.iter().min().unwrap(),
+                         map_scores.iter().max().unwrap());
+            } else {
+                assert!(map_scores.len() == 1);
+                println!("[{}]: Score {}", name, map_scores[0]);
+            }
+            summary_scores.push(score_avg.round() as usize);
         }
         println!("Min score: {}", summary_scores.iter().min().unwrap());
         println!("Max score: {}", summary_scores.iter().max().unwrap());
