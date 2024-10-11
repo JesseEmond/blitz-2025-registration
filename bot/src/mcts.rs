@@ -227,6 +227,35 @@ impl<Spec: MCTS> SearchComponent<Spec> for Step<'_, Spec> {
     }
 }
 
+/// Evaluate each possible next move with a sub-search algorithm. Pick the best.
+pub struct LookAhead<'a, Spec: MCTS> {
+    invoker: Invoker<'a, Spec>,
+}
+impl<'a, Spec: MCTS> LookAhead<'a, Spec> {
+    pub fn new(subcomponent: Box<dyn SearchComponent<Spec> + 'a>) -> Self {
+        Self { invoker: Invoker::new(subcomponent) }
+    }
+}
+impl<Spec: MCTS> SearchComponent<Spec> for LookAhead<'_, Spec> {
+    fn execute(&mut self, params: &mut SearchParams<Spec>,
+               state: &Spec::State, prev_actions: Vec<Spec::Action>) -> Vec<Spec::Action> {
+        let mut actions_taken = prev_actions;
+        let next_actions = state.generate_actions();
+        let (last_action, other_actions) = next_actions.split_last().unwrap();
+        for action in other_actions.into_iter() {
+            let mut state = state.clone();
+            actions_taken.push(action.clone());
+            state.apply_action(action.clone());
+            self.invoker.invoke(params, &state, actions_taken.clone());
+            actions_taken.pop();
+        }
+        let mut state = state.clone();
+        actions_taken.push(last_action.clone());
+        state.apply_action(last_action.clone());
+        self.invoker.invoke(params, &state, actions_taken)
+    }
+}
+
 
 // Helper for component implementations
 /// Parameters fixed for a search algorithm.
