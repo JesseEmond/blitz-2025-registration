@@ -1,7 +1,22 @@
 /// Implementation of Monte Carlo Tree Search (MCTS), using subcomponents from
-/// https://arxiv.org/pdf/1208.4692, allowing for a meta search over the MCTS
-/// search structure.
-// TODO: usage example
+/// https://arxiv.org/pdf/1208.4692, allowing for a meta search over the Monte
+/// Carlo Search grammar.
+///
+/// Example usage:
+///   struct MyMCTS;
+///   impl mcts::MCTS for MyMCTS {
+///     type Action = MyAction;
+///     type State = MyState;
+///     type Evaluator = MyEvaluator;
+///     type Budget = mcts::TimeBudget;
+///     type RolloutPolicy = mcts::RandomPolicy;
+///   }
+///   // ...
+///   let params = mcts::SearchParams::<MyMCTS>::new(
+///     mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
+///     MyEvaluator{});
+///   let algorithm = mcts::sampling_algorithm(params);
+///   let next_move = algorithm.search(&my_state).next_action();
 // TODO: split to its own module, put interfaces vs. implementations in diff files
 
 use rand::seq::SliceRandom;
