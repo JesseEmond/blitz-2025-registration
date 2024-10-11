@@ -157,8 +157,8 @@ impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
             return self.yielder.best_actions.clone();
         }
         let mut state = state.clone();
+        let mut rollout_len = prev_actions.len();
         let mut actions_seq = prev_actions;
-        let mut rollout_len = 0;
         while !params.state_is_done(&state, rollout_len) {
             let actions = state.generate_actions();
             assert!(!actions.is_empty(), "Empty actions on non-terminal state");
@@ -194,6 +194,7 @@ impl<Spec: MCTS> SearchComponent<Spec> for Repeat<'_, Spec> {
     }
 }
 
+/// For the remainder of the steps, run a sub-search to pick the next action.
 pub struct Step<'a, Spec: MCTS> {
     invoker: Invoker<'a, Spec>,
 }
@@ -205,7 +206,7 @@ impl<'a, Spec: MCTS> Step<'a, Spec> {
 impl<Spec: MCTS> SearchComponent<Spec> for Step<'_, Spec> {
     fn execute(&mut self, params: &mut SearchParams<Spec>,
                state: &Spec::State, prev_actions: Vec<Spec::Action>) -> Vec<Spec::Action> {
-        let mut rollout_length = 0;
+        let mut rollout_length = prev_actions.len();
         let mut actions_taken = prev_actions;
         let mut state = state.clone();
         while !params.state_is_done(&state, rollout_length) {
