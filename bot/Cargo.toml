@@ -18,6 +18,8 @@ image = { version = "0.25.2", default-features = false, features = ["png"] }
 clap = { version = "4.5.20", features = ["derive"] }
 num_cpus = "1.16.0"
 itertools = "0.13.0"
+ordered-float = "4.3.0"
+rand_chacha = "0.3.1"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"]   }
