@@ -37,13 +37,15 @@ struct EvalResults {
     ticks: usize,
     score: usize,
     tick_times: Vec<Duration>,
+    num_evals: Vec<usize>,
 }
 
 impl EvalResults {
     fn print(&self) {
-        println!("[{}] Game end! Tick: {}, Score: {}  (times: avg {:.1}ms peak {:.1}ms)",
+        println!("[{}] Game end! Tick: {}, Score: {}  (times: avg {:.1}ms peak {:.1}ms) (evals: avg {:.1})",
                  self.name, self.ticks, self.score,
-                 self.average_tick().as_millis(), self.peak_tick().as_millis());
+                 self.average_tick().as_millis(), self.peak_tick().as_millis(),
+                 self.average_num_evals());
     }
 
     fn peak_tick(&self) -> Duration {
@@ -52,6 +54,10 @@ impl EvalResults {
 
     fn average_tick(&self) -> Duration {
         self.tick_times.iter().sum::<Duration>() / self.tick_times.len() as u32
+    }
+
+    fn average_num_evals(&self) -> f32 {
+        self.num_evals.iter().sum::<usize>() as f32 / self.num_evals.len() as f32
     }
 }
 
@@ -70,19 +76,22 @@ fn evaluate_map(map: Map, show_progress: Option<usize>) -> EvalResults {
     println!("Evaluating map {}...", map.name);
     let mut bot = Bot { state: State::new(map.game) };
     let mut tick_times = Vec::new();
+    let mut num_evals = Vec::new();
     while !bot.state.game_over {
         if show_progress.is_some_and(|n| bot.state.tick % n == 0) {
             println!("[{}] tick {}", map.name, bot.state.tick);
         }
         let time = Instant::now();
-        bot.self_play_tick();
+        let stats = bot.self_play_tick();
         tick_times.push(time.elapsed());
+        num_evals.push(stats.num_evals);
     }
     let results = EvalResults {
         name: map.name,
         ticks: bot.state.tick,
         score: bot.state.score(),
         tick_times,
+        num_evals,
     };
     results.print();
     results

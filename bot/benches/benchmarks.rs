@@ -54,7 +54,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("PathfindingGrid 22x15 creation", |b| {
         b.iter(|| PathfindingGrid::new(black_box(grid.clone())));
     });
-    c.bench_function("IterativeSampling 22x15 1000 evals", |b| {
+    c.bench_function("sampling_algorithm 22x15 1000 evals", |b| {
         let game = simulation::Game {
             tick: 1,
             pos: Pos { x: 15, y: 8 },
@@ -71,12 +71,34 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         };
         let state = simulation::State::new(game);
         b.iter(|| {
-            let simulate = mcts::Simulate::<MCTS>::new(mcts::RandomPolicy {});
             let params = mcts::SearchParams::<MCTS>::new(
                 mcts::EvalCallsBudget { max_evals: 1000 },
                 search::ThreatsAreFarEval {});
-            let algorithm = mcts::Algorithm::<MCTS>::new(
-                black_box(Box::new(simulate)), black_box(params));
+            let algorithm = mcts::sampling_algorithm(black_box(params));
+            algorithm.search(&black_box(state.clone()))
+        });
+    });
+    c.bench_function("uct_algorithm 22x15 100 iter 1000 evals", |b| {
+        let game = simulation::Game {
+            tick: 1,
+            pos: Pos { x: 15, y: 8 },
+            alive: true,
+            grid: grid.clone(),
+            threats: vec![
+                simulation::Threat::spawn(Pos { x: 15, y: 9 }, Style::Hawk),
+                simulation::Threat::spawn(Pos { x: 15, y: 10 }, Style::Owl),
+                simulation::Threat::spawn(Pos { x: 1, y: 1 }, Style::Deer),
+                simulation::Threat::spawn(Pos { x: 1, y: 12 }, Style::Shark),
+                simulation::Threat::spawn(Pos { x: 5, y: 7 }, Style::Hawk),
+                simulation::Threat::spawn(Pos { x: 8, y: 11 }, Style::Hawk),
+            ],
+        };
+        let state = simulation::State::new(game);
+        b.iter(|| {
+            let params = mcts::SearchParams::<MCTS>::new(
+                mcts::EvalCallsBudget { max_evals: 1000 },
+                search::ThreatsAreFarEval {});
+            let algorithm = mcts::uct_algorithm(black_box(params), black_box(1.0), black_box(100));
             algorithm.search(&black_box(state.clone()))
         });
     });

@@ -329,7 +329,6 @@ impl<'a, Spec: MCTS> Select<'a, Spec> {
         let mut node = self.find_node(actions);
         while self.tree.get(node).is_expanded() {
             if params.state_is_done(&state, actions.len()) {
-                assert!(false);
                 break;
             }
             let child = self.selector.select_node(&self.tree.get(node));
@@ -549,7 +548,7 @@ impl SearchBudget for TimeBudget {
 
 /// Rollout policy that picks actions at random.
 pub struct RandomPolicy {
-    rng: ChaCha8Rng,
+    pub rng: ChaCha8Rng,
 }
 
 impl<Spec: MCTS> SimulationPolicy<Spec> for RandomPolicy {
@@ -566,18 +565,19 @@ impl<Spec: MCTS> SimulationPolicy<Spec> for RandomPolicy {
 /// UCB-1 selector, see https://arxiv.org/pdf/1208.4692 (6).
 struct Ucb1Selector {
     /// Exploration parameter, 'c'.
-    pub exploration: f64,
+    pub exploration: f32,
 }
 impl Ucb1Selector {
     fn ucb1<Spec: MCTS>(&self, parent_visits: usize, child: &Child<Spec>) -> f32 {
         let c = self.exploration;
         let s_u = child.score_sum;
-        let n = parent_visits as f64;
-        let n_u = child.visits as f64;
+        let n = parent_visits as f32;
+        let n_u = child.visits as f32;
         if n_u == 0.0 {
             f32::INFINITY
         } else {
-            (s_u / n_u + c * (n.ln() / n_u).sqrt()) as f32
+            let avg = (s_u / n_u as f64) as f32;
+            (avg + c * (n.ln() / n_u).sqrt()) as f32
         }
     }
 }
@@ -595,7 +595,9 @@ impl<Spec: MCTS> Selector<Spec> for Ucb1Selector {
 pub fn sampling_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
     params: SearchParams<Spec>) -> Algorithm<'a, Spec> {
     // From https://arxiv.org/pdf/1208.4692 (7)
-    Algorithm::new(Box::new(Simulate::new(RandomPolicy { rng: ChaCha8Rng::seed_from_u64(42) })), params)
+    let simulate = Box::new(
+        Simulate::new(RandomPolicy { rng: ChaCha8Rng::seed_from_u64(42) }));
+    Algorithm::new(simulate, params)
 }
 
 /// Sampling algorithm that simulates a random rollout policy N times, picks the
@@ -611,7 +613,7 @@ pub fn iterative_sampling_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy>
 
 /// Select actions one after the other, using statistics from simulations to
 /// inform what node to select next.
-pub fn monte_carlo_tree_search<'a, Spec: MCTS + 'a>(
+pub fn mcts_algorithm<'a, Spec: MCTS + 'a>(
     params: SearchParams<Spec>, selector: Box<dyn Selector<Spec>>,
     rollout: Spec::RolloutPolicy, step_iterations: usize) -> Algorithm<'a, Spec> {
     // From https://arxiv.org/pdf/1208.4692 (12)
@@ -623,11 +625,13 @@ pub fn monte_carlo_tree_search<'a, Spec: MCTS + 'a>(
 }
 
 /// MCTS using the UCB-1 selection policy.
-pub fn uct<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
-    params: SearchParams<Spec>, exploration: f64,
+pub fn uct_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
+    params: SearchParams<Spec>, exploration: f32,
     step_iterations: usize) -> Algorithm<'a, Spec> {
     let selector = Box::new(Ucb1Selector { exploration });
-    monte_carlo_tree_search(params, selector, RandomPolicy { rng: ChaCha8Rng::seed_from_u64(42) }, step_iterations)
+    mcts_algorithm(params, selector,
+                   RandomPolicy { rng: ChaCha8Rng::seed_from_u64(42) },
+                   step_iterations)
 }
 
 

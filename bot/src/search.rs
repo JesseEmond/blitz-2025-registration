@@ -80,10 +80,11 @@ impl Bot {
     }
 
     /// Pick our next move and apply it locally, silently.
-    pub fn self_play_tick(&mut self) {
+    pub fn self_play_tick(&mut self) -> mcts::Stats {
         let results = self.search_next_move();
         let action = results.next_action().expect("empty search");
         self.state.simulate_tick(SimulationAction::Move { direction: action });
+        results.stats
     }
 
     fn search_next_move(&mut self) -> mcts::Results<MCTS> {

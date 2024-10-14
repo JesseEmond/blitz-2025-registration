@@ -3,6 +3,11 @@ name = "devnull_bot"
 edition = "2021"
 version = "0.1.0"
 
+[[bin]]
+name = "devnull_bot_eval"
+path = "src/main.rs"
+bench = false
+
 [lib]
 name = "devnull_bot"
 crate-type = ["cdylib", "rlib"]
