@@ -36,6 +36,9 @@ pub trait MCTS: Sized {
     type Action: Clone + PartialEq;
     /// State of the game.
     type State: Clone + SearchState<Self>;
+    /// Possible actions at a given state.
+    /// Configurable to allow optimized states (e.g. smallvec)
+    type ActionSpace: std::ops::Deref<Target = [Self::Action]> + IntoIterator<Item = Self::Action>;
 
     // Search related
     /// Evaluator of a state's goodness.
@@ -48,10 +51,9 @@ pub trait MCTS: Sized {
 
 /// State within the game.
 pub trait SearchState<Spec: MCTS> {
-    // TODO: optionally allow apply/undo, for optimization?
     /// Possible actions in this current state.
     /// Must return actions if the state is not terminal.
-    fn generate_actions(&self) -> Vec<Spec::Action>;
+    fn generate_actions(&self) -> Spec::ActionSpace;
     /// Apply the given action, advance the state.
     fn apply_action(&mut self, action: Spec::Action);
     /// If the state is final and no further actions are possible.
@@ -72,7 +74,7 @@ pub trait Evaluator<Spec: MCTS> {
 /// Rollout policy for picking moves during simulation.
 pub trait SimulationPolicy<Spec: MCTS> {
     /// For a given state, pick the next action to take.
-    fn pick_action(&mut self, state: &Spec::State, actions: &Vec<Spec::Action>) -> Spec::Action;
+    fn pick_action(&mut self, state: &Spec::State, actions: &Spec::ActionSpace) -> Spec::Action;
 }
 
 /// Search budget, called onced per evaluation function evaluation to decide if
@@ -197,7 +199,6 @@ impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
         let mut state = state.clone();
         while !params.state_is_done(&state, decided.len()) {
             let state_actions = state.generate_actions();
-            assert!(!state_actions.is_empty(), "Empty actions on non-terminal state");
             let action = self.policy.pick_action(&state, &state_actions);
             decided.push(action.clone());
             state.apply_action(action);
@@ -550,7 +551,7 @@ pub struct RandomPolicy {
 
 impl<Spec: MCTS> SimulationPolicy<Spec> for RandomPolicy {
     fn pick_action(&mut self, _state: &Spec::State,
-                   actions: &Vec<Spec::Action>) -> Spec::Action {
+                   actions: &Spec::ActionSpace) -> Spec::Action {
         actions.choose(&mut self.rng).unwrap().clone()
     }
 }
@@ -639,8 +640,10 @@ pub fn uct_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
 mod tests {
     use super::*;
 
+    #[derive(Debug)]
     struct MockMCTS;
     impl MCTS for MockMCTS {
+        type ActionSpace = Vec<FakeAction>;
         type Action = FakeAction;
         type State = MockState;
         type Evaluator = MockEval;
@@ -684,11 +687,11 @@ mod tests {
     /// Mock search subcomponent.
     struct MockComponent {
         /// Predecided sequence of values to return.
-        returns: Vec<Vec<FakeAction>>,
+        returns: Vec<Outcome<MockMCTS>>,
     }
     impl SearchComponent<MockMCTS> for MockComponent {
         fn execute(&mut self, _params: &mut SearchParams<MockMCTS>,
-                   _state: &MockState, _decided: Vec<FakeAction>) -> Vec<FakeAction> {
+                   _state: &MockState, _decided: Vec<FakeAction>) -> Outcome<MockMCTS> {
             assert!(!self.returns.is_empty());
             self.returns.remove(0)
         }
@@ -715,11 +718,11 @@ mod tests {
         // (0 to 5)
         let mock = MockComponent {
             returns: vec![
-                vec![0, 1, 2, 3, 4, 5],
-                vec![0, 1, 2, 3, 4, 5],
-                vec![0, 1, 2, 3, 4, 5],
-                vec![0, 1, 2, 3, 4, 5],
-                vec![0, 1, 2, 3, 4, 5],
+                Outcome { score: 0.0, actions: vec![0, 1, 2, 3, 4, 5] },
+                Outcome { score: 0.0, actions: vec![0, 1, 2, 3, 4, 5] },
+                Outcome { score: 0.0, actions: vec![0, 1, 2, 3, 4, 5] },
+                Outcome { score: 0.0, actions: vec![0, 1, 2, 3, 4, 5] },
+                Outcome { score: 0.0, actions: vec![0, 1, 2, 3, 4, 5] },
             ]
         };
         let mut step = Box::new(Step::new(Box::new(mock)));
@@ -731,8 +734,10 @@ mod tests {
         };
         let mut params = SearchParams::<MockMCTS>::new(
             EvalCallsBudget { max_evals: 9999 },
-            MockEval {});
-        assert_eq!(step.execute(&mut params, &state, vec![]), vec![0, 1, 2, 3, 4]);
+            MockEval {}, /*seed=*/42);
+        // Still outputs the full sequence (including 5)
+        assert_eq!(step.execute(&mut params, &state, vec![]).actions,
+                   vec![0, 1, 2, 3, 4, 5]);
     }
 
     #[test]
@@ -742,13 +747,13 @@ mod tests {
         // after seeing '1'.
         let mock = MockComponent {
             returns: vec![
-                vec![0, 1, 2, 3, 4, 5],
-                vec![0, 1, 2, 3, 4, 5],
-                vec![0, 1, 10, 100, 1000, 10000],
-                vec![0, 1, 10, 100, 1000, 10000],
-                vec![0, 1, 10, 100, 1000, 10000],
-                vec![0, 1, 10, 100, 1000, 10000],
-                vec![0, 1, 10, 100, 1000, 10000],
+                Outcome { score: 0.0, actions: vec![0, 1, 2, 3, 4, 5] },
+                Outcome { score: 0.0, actions: vec![0, 1, 2, 3, 4, 5] },
+                Outcome { score: 5.0, actions: vec![0, 1, 10, 100, 1000, 10000] },
+                Outcome { score: 5.0, actions: vec![0, 1, 10, 100, 1000, 10000] },
+                Outcome { score: 5.0, actions: vec![0, 1, 10, 100, 1000, 10000] },
+                Outcome { score: 5.0, actions: vec![0, 1, 10, 100, 1000, 10000] },
+                Outcome { score: 5.0, actions: vec![0, 1, 10, 100, 1000, 10000] },
             ]
         };
         let mut step = Box::new(Step::new(Box::new(mock)));
@@ -760,8 +765,8 @@ mod tests {
         };
         let mut params = SearchParams::<MockMCTS>::new(
             EvalCallsBudget { max_evals: 9999 },
-            MockEval {});
-        assert_eq!(step.execute(&mut params, &state, vec![]),
-                   vec![0, 1, 10, 100, 1000]);
+            MockEval {}, /*seed=*/42);
+        assert_eq!(step.execute(&mut params, &state, vec![]).actions,
+                   vec![0, 1, 10, 100, 1000, 10_000]);
     }
 }

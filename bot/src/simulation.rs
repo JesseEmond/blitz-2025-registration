@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use strum_macros::EnumIter;
+use itertools::chain;
 use once_cell::sync::Lazy;
+use strum_macros::EnumIter;
 
 use crate::grid::{Grid, Move, Pos};
 use crate::pathfinding::{PathfindingGrid};
@@ -291,15 +292,11 @@ impl State {
         }
     }
 
-    pub fn generate_moves(&self) -> Vec<Option<Move>> {
-        if self.game_over {
-            Vec::new()
-        } else {
-            let mut moves = Vec::new();
-            moves.extend(self.grid.grid.available_moves(&self.pos).iter().map(|&m| Some(m)));
-            moves.push(None);
-            moves
-        }
+    pub fn generate_moves(&self) -> impl Iterator<Item = Option<Move>> + '_ {
+        assert!(!self.game_over);
+        chain(
+            self.grid.grid.available_moves(&self.pos).iter().map(|&m| Some(m)),
+            std::iter::once(None))
     }
 
     /// Simulate one tick from the server-side, applying a player action.

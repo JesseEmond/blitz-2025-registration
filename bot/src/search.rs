@@ -1,3 +1,5 @@
+use smallvec::SmallVec;
+
 use crate::grid::{Move, Pos};
 use crate::mcts;
 use crate::simulation::{Game, SimulationAction, State};
@@ -45,10 +47,10 @@ impl<Spec: mcts::MCTS<State = State>> mcts::Evaluator<Spec> for TicksSurvivedEva
     }
 }
 
-impl<Spec: mcts::MCTS<State = State, Action = Action>>
+impl<Spec: mcts::MCTS<State = State, Action = Action, ActionSpace = ActionSpace>>
 mcts::SearchState<Spec> for State {
-    fn generate_actions(&self) -> Vec<Action> {
-        self.generate_moves()
+    fn generate_actions(&self) -> Spec::ActionSpace {
+        self.generate_moves().collect()
     }
     fn is_terminal(&self) -> bool {
         self.game_over
@@ -60,11 +62,14 @@ mcts::SearchState<Spec> for State {
 
 
 pub type Action = Option<Move>;
+const NUM_ACTIONS: usize = 4 + 1;  // 4 moves (up/down/left/right) + None
+pub type ActionSpace = SmallVec<[Action; NUM_ACTIONS]>;
 
 struct MCTS;
 impl mcts::MCTS for MCTS {
     type Action = Action;
     type State = State;
+    type ActionSpace = ActionSpace;
     type Evaluator = TicksSurvivedEval;
     type Budget = mcts::TimeBudget;
     type RolloutPolicy = mcts::RandomPolicy;
