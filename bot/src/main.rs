@@ -1,3 +1,4 @@
+// TODO: Make seed configurable, try different seeds in eval.
 use std::thread;
 use itertools::Itertools;
 use std::time::{Duration, Instant};

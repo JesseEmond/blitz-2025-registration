@@ -99,7 +99,8 @@ impl Bot {
         let params = mcts::SearchParams::<MCTS>::new(
             mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
             TicksSurvivedEval {});
-        let algorithm = mcts::sampling_algorithm(params);
+        // let algorithm = mcts::sampling_algorithm(params);
+        let algorithm = mcts::uct_algorithm(params, 1.0, 100);
         algorithm.search(&self.state)
     }
 

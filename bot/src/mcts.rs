@@ -316,7 +316,7 @@ impl<'a, Spec: MCTS> Select<'a, Spec> {
             if params.state_is_done(&state, actions.len()) {
                 break;
             }
-            let child = self.selector.select_node(&self.tree.get(node));
+            let child = self.selector.select_node(&params, &self.tree.get(node));
             actions.push(child.action.clone());
             state.apply_action(child.action.clone());
             node = child.to;
@@ -370,11 +370,22 @@ pub struct SearchParams<Spec: MCTS> {
     stats: Stats,
     // If set, a rollout that lasts this many steps will be considered terminal
     max_rollout_length: Option<usize>,
+    // Historical lowest/highest scores seen, used to scale rewards.
+    // Assume [0, 1] as a starting point.
+    lowest_score: Score,
+    highest_score: Score,
 }
 
 impl<Spec: MCTS> SearchParams<Spec> {
     pub fn new(budget: Spec::Budget, evaluator: Spec::Evaluator) -> Self {
-        Self { budget, evaluator, stats: Stats::new(), max_rollout_length: None }
+        Self {
+            budget,
+            evaluator,
+            stats: Stats::new(),
+            max_rollout_length: None,
+            lowest_score: 0.0,
+            highest_score: 1.0,
+        }
     }
     /// Consider a state terminal if its rollout length lasts this long.
     pub fn set_max_rollout_length(&mut self, length: usize) {
@@ -384,7 +395,16 @@ impl<Spec: MCTS> SearchParams<Spec> {
     pub fn evaluate(&mut self, state: &Spec::State) -> Score {
         let score = self.evaluator.evaluate(state);
         self.stats.on_evaluation(score);
+        self.lowest_score = self.lowest_score.min(score);
+        self.highest_score = self.highest_score.max(score);
         score
+    }
+    /// Return a score in the [0, 1] range, using historical high/lows.
+    pub fn normalize_score(&self, score: Score) -> Score {
+        assert!(score >= self.lowest_score);
+        assert!(score <= self.highest_score);
+        let range = self.highest_score - self.lowest_score;
+        (score - self.lowest_score) / range
     }
     /// If we should stop the search (over budget).
     pub fn search_is_done(&self) -> bool {
@@ -439,7 +459,8 @@ impl<'a, Spec: MCTS> Invoker<'a, Spec> {
 /// Selects the next child node to explore.
 pub trait Selector<Spec: MCTS> {
     /// Select the child node to visit from this parent node.
-    fn select_node<'a>(&self, node: &'a Node<Spec>) -> &'a Child<Spec>;
+    fn select_node<'a>(&self, params: &SearchParams<Spec>,
+                       node: &'a Node<Spec>) -> &'a Child<Spec>;
 }
 
 /// Node in a MCTS tree.
@@ -546,24 +567,25 @@ struct Ucb1Selector {
     pub exploration: f32,
 }
 impl Ucb1Selector {
-    fn ucb1<Spec: MCTS>(&self, parent_visits: usize, child: &Child<Spec>) -> f32 {
+    fn ucb1<Spec: MCTS>(&self, params: &SearchParams<Spec>,
+                        parent_visits: usize, child: &Child<Spec>) -> f32 {
         let c = self.exploration;
-        let s_u = child.score_sum;
         let n = parent_visits as f32;
         let n_u = child.visits as f32;
         if n_u == 0.0 {
             f32::INFINITY
         } else {
-            // TODO: scale 0-1 based on historical min/max
-            let avg = (s_u / n_u as f64) as f32;
-            (avg + c * (n.ln() / n_u).sqrt()) as f32
+            let avg = (child.score_sum / n_u as f64) as f32;
+            let s_u = params.normalize_score(avg);
+            (s_u + c * (n.ln() / n_u).sqrt()) as f32
         }
     }
 }
 impl<Spec: MCTS> Selector<Spec> for Ucb1Selector {
-    fn select_node<'a>(&self, node: &'a Node<Spec>) -> &'a Child<Spec> {
+    fn select_node<'a>(&self, params: &SearchParams<Spec>,
+                       node: &'a Node<Spec>) -> &'a Child<Spec> {
         node.children.iter()
-            .max_by_key(|c| OrderedFloat(self.ucb1(node.visits, c)))
+            .max_by_key(|c| OrderedFloat(self.ucb1(params, node.visits, c)))
             .unwrap()
     }
 }
