@@ -1,8 +1,9 @@
 use std::thread;
-use itertools::Itertools;
 use std::time::{Duration, Instant};
+use itertools::Itertools;
 
 use clap::Parser;
+use num_traits::AsPrimitive;
 use rand::seq::SliceRandom;
 
 use devnull_bot::map_loader;
@@ -34,33 +35,41 @@ struct MapSelectionArgGroup {
     map_name: Option<String>,
 }
 
+fn median<T: std::cmp::Ord + AsPrimitive<f32>>(mut values: Vec<T>) -> f32 {
+    values.sort();
+    let mid = values.len() / 2;
+    if values.len() % 2 == 0 {
+        (values[mid].as_() + values[mid + 1].as_()) / 2.0
+    } else {
+        values[mid].as_()
+    }
+}
+
 struct EvalResults {
     name: String,
     ticks: usize,
     score: usize,
-    tick_times: Vec<Duration>,
-    num_evals: Vec<usize>,
+    avg_tick_ms: f32,
+    peak_tick_ms: f32,
+    median_num_evals: f32,
 }
 
 impl EvalResults {
+    fn new(name: String, ticks: usize, score: usize, tick_times: Vec<Duration>,
+           num_evals: Vec<usize>) -> Self {
+        let avg_ticks = tick_times.iter().sum::<Duration>() / tick_times.len() as u32;
+        let peak_ticks = tick_times.iter().max().unwrap();
+        Self {
+            name, ticks, score,
+            avg_tick_ms: avg_ticks.as_millis() as f32,
+            peak_tick_ms: peak_ticks.as_millis() as f32,
+            median_num_evals: median(num_evals),
+        }
+    }
     fn print(&self) {
-        println!("[{}] Game end! Tick: {}, Score: {}  (times: avg {:.1}ms peak {:.1}ms) (evals: avg {:.1})",
-                 self.name, self.ticks, self.score,
-                 self.average_tick().as_millis(), self.peak_tick().as_millis(),
-                 self.average_num_evals());
-    }
-
-    fn peak_tick(&self) -> Duration {
-        *self.tick_times.iter().max().unwrap()
-    }
-
-    fn average_tick(&self) -> Duration {
-        self.tick_times.iter().sum::<Duration>() / self.tick_times.len() as u32
-    }
-
-    fn average_num_evals(&self) -> f32 {
-        // TODO: Show median instead
-        self.num_evals.iter().sum::<usize>() as f32 / self.num_evals.len() as f32
+        println!("[{}] Game end! Tick: {}, Score: {}  (times: avg {:.1}ms peak {:.1}ms) (evals median: {:.1})",
+                 self.name, self.ticks, self.score, self.avg_tick_ms,
+                 self.peak_tick_ms, self.median_num_evals);
     }
 }
 
@@ -89,13 +98,8 @@ fn evaluate_map(map: Map, show_progress: Option<usize>, seed: u64) -> EvalResult
         tick_times.push(time.elapsed());
         num_evals.push(stats.num_evals);
     }
-    let results = EvalResults {
-        name: map.name,
-        ticks: bot.state.tick,
-        score: bot.state.score(),
-        tick_times,
-        num_evals,
-    };
+    let results = EvalResults::new(
+        map.name, bot.state.tick, bot.state.score(), tick_times, num_evals);
     results.print();
     results
 }
