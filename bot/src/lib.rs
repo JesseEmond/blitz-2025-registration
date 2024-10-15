@@ -270,7 +270,7 @@ fn create_bot(game_state: &GameState) -> PyResult<DevnullBot> {
         if !is_same { println!("Not that one!"); }
         is_same
     }).next().ok_or(PyValueError::new_err("Failed to find a matching map!"))?;
-    Ok(DevnullBot { bot: Bot { state: State::new(map.game) } })
+    Ok(DevnullBot { bot: Bot { state: State::new(map.game), seed: 42 } })
 }
 
 #[pymodule]

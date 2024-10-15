@@ -71,6 +71,7 @@ impl mcts::MCTS for MCTS {
 }
 
 pub struct Bot {
+    pub seed: u64,
     pub state: State,
 }
 
@@ -98,7 +99,8 @@ impl Bot {
     fn search_next_move(&mut self) -> mcts::Results<MCTS> {
         let params = mcts::SearchParams::<MCTS>::new(
             mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
-            TicksSurvivedEval {});
+            TicksSurvivedEval {},
+            self.seed);
         // let algorithm = mcts::sampling_algorithm(params);
         let algorithm = mcts::uct_algorithm(params, 1.0, 100);
         algorithm.search(&self.state)

@@ -1,4 +1,3 @@
-// TODO: Make seed configurable, try different seeds in eval.
 use std::thread;
 use itertools::Itertools;
 use std::time::{Duration, Instant};
@@ -74,9 +73,9 @@ fn load_eval_maps(selection: MapSelectionArgGroup) -> map_loader::Result<Vec<Map
     Ok(vec![load_map(&name)?])
 }
 
-fn evaluate_map(map: Map, show_progress: Option<usize>) -> EvalResults {
+fn evaluate_map(map: Map, show_progress: Option<usize>, seed: u64) -> EvalResults {
     println!("Evaluating map {}...", map.name);
-    let mut bot = Bot { state: State::new(map.game) };
+    let mut bot = Bot { state: State::new(map.game), seed };
     let mut tick_times = Vec::new();
     let mut num_evals = Vec::new();
     while !bot.state.game_over {
@@ -116,13 +115,15 @@ fn main() {
                  parallelism, cpus);
     }
     for chunk_maps in maps.chunks(parallelism) {
+        let main_seed = 0;
         let (map, other_maps) = chunk_maps.split_first().unwrap();
         let other_handles: Vec<thread::JoinHandle<EvalResults>> = other_maps
-            .into_iter().map(|map| {
+            .into_iter().enumerate().map(|(i, map)| {
                 let map = map.clone();
-                thread::spawn(move || { evaluate_map(map, cli.show_progress) })
+                let seed = (main_seed + 1 + i) as u64;
+                thread::spawn(move || { evaluate_map(map, cli.show_progress, seed) })
             }).collect();
-        results.push(evaluate_map(map.clone(), cli.show_progress));
+        results.push(evaluate_map(map.clone(), cli.show_progress, main_seed as u64));
         for handle in other_handles {
             results.push(handle.join().unwrap());
         }

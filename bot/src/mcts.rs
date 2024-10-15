@@ -368,6 +368,7 @@ pub struct SearchParams<Spec: MCTS> {
     budget: Spec::Budget,
     evaluator: Spec::Evaluator,
     stats: Stats,
+    seed: u64,
     // If set, a rollout that lasts this many steps will be considered terminal
     max_rollout_length: Option<usize>,
     // Historical lowest/highest scores seen, used to scale rewards.
@@ -377,10 +378,11 @@ pub struct SearchParams<Spec: MCTS> {
 }
 
 impl<Spec: MCTS> SearchParams<Spec> {
-    pub fn new(budget: Spec::Budget, evaluator: Spec::Evaluator) -> Self {
+    pub fn new(budget: Spec::Budget, evaluator: Spec::Evaluator, seed: u64) -> Self {
         Self {
             budget,
             evaluator,
+            seed,
             stats: Stats::new(),
             max_rollout_length: None,
             lowest_score: 0.0,
@@ -597,7 +599,7 @@ pub fn sampling_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
     params: SearchParams<Spec>) -> Algorithm<'a, Spec> {
     // From https://arxiv.org/pdf/1208.4692 (7)
     let simulate = Box::new(
-        Simulate::new(RandomPolicy { rng: ChaCha8Rng::seed_from_u64(42) }));
+        Simulate::new(RandomPolicy { rng: ChaCha8Rng::seed_from_u64(params.seed) }));
     Algorithm::new(simulate, params)
 }
 
@@ -606,7 +608,7 @@ pub fn sampling_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
 pub fn iterative_sampling_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
     params: SearchParams<Spec>, iterations_per_step: usize) -> Algorithm<'a, Spec> {
     // From https://arxiv.org/pdf/1208.4692 (8)
-    let simulate = Box::new(Simulate::new(RandomPolicy { rng: ChaCha8Rng::seed_from_u64(42) }));
+    let simulate = Box::new(Simulate::new(RandomPolicy { rng: ChaCha8Rng::seed_from_u64(params.seed) }));
     let repeat = Box::new(Repeat::new(iterations_per_step, simulate));
     let step = Box::new(Step::new(repeat));
     Algorithm::new(step, params)
@@ -630,8 +632,9 @@ pub fn uct_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
     params: SearchParams<Spec>, exploration: f32,
     step_iterations: usize) -> Algorithm<'a, Spec> {
     let selector = Box::new(Ucb1Selector { exploration });
+    let seed = params.seed;
     mcts_algorithm(params, selector,
-                   RandomPolicy { rng: ChaCha8Rng::seed_from_u64(42) },
+                   RandomPolicy { rng: ChaCha8Rng::seed_from_u64(seed) },
                    step_iterations)
 }
 
