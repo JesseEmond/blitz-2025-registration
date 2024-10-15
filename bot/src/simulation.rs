@@ -105,18 +105,19 @@ impl Threat {
         match self.style {
             Style::Goldfish => {
                 // See girouette.js
+                let rand = self._next_rand();
                 let directions = self.get_possible_directions(&grid.grid);
-                let o = self._next_rand() * directions.len() as f64;
-                let idx = o.floor();
+                let idx = (rand * directions.len() as f64).floor();
                 Some(directions[idx as usize])
             },
             Style::Bull => {
                 // See straight_ahead_threat.js
-                let directions = self.get_possible_directions(&grid.grid);
-                if directions.contains(&self.dir) {
+                if self.get_possible_directions(&grid.grid).contains(&self.dir) {
                     Some(self.dir)
                 } else {
-                    let o = self._next_rand() * directions.len() as f64;
+                    let rand = self._next_rand();
+                    let directions = self.get_possible_directions(&grid.grid);
+                    let o = rand * directions.len() as f64;
                     let idx = o.floor();
                     Some(directions[idx as usize])
                 }
@@ -128,15 +129,15 @@ impl Threat {
                     Some(directions[0])
                 } else {
                     let directions = directions.into_iter()
-                        .filter(|&d| d != self.dir.opposite());
+                        .filter(|&&d| d != self.dir.opposite());
                     let target = if self.pos.dist_squared(&player_prev) > 6 * 6 {
                         player_prev
                     } else {
                         &self.spawn
                     };
-                    Some(directions.min_by_key(|&d| {
+                    Some(directions.min_by_key(|&&d| {
                         self.pos.moved(d).dist_squared(target)
-                    }).unwrap())
+                    }).cloned().unwrap())
                 }
             },
             Style::Shark => {
@@ -243,12 +244,9 @@ impl Threat {
         IS_MOVE_TICK[tick]
     }
 
-    fn get_possible_directions(&self, grid: &Grid) -> Vec<Move> {
-        // Same order as getPossibleDirections: ["left", "right", "up", "down"]
-        // https://github.com/JesseEmond/blitz-2025-registration/blob/e2472c198b9ebea2e88ca07d6df8759f11fcaf4b/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L129
-        [Move::Left, Move::Right, Move::Up, Move::Down].into_iter()
-            .filter(|&m| grid.is_empty(&self.pos.moved(m)))
-            .collect()
+    fn get_possible_directions<'a>(&'a self, grid: &'a Grid) -> &Vec<Move> {
+        // Grid precomputed moves are created following getPossibleDirections
+        grid.available_moves(&self.pos)
     }
 
     fn _next_rand(&mut self) -> f64 {

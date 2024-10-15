@@ -111,6 +111,7 @@ impl Grid {
         (self.width, self.height)
     }
 
+    /// Get possible moves at a position, following getPossibleDirections order.
     pub fn available_moves(&self, from: &Pos) -> &Vec<Move> {
         &self.moves[self.empty_tile_idx(from) as usize]
     }
@@ -180,9 +181,11 @@ impl Grid {
     }
 
     fn _compute_moves(&self) -> Vec<Vec<Move>> {
+        // Same order as getPossibleDirections: ["left", "right", "up", "down"]
+        // https://github.com/JesseEmond/blitz-2025-registration/blob/e2472c198b9ebea2e88ca07d6df8759f11fcaf4b/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L129
         self.empty_tiles.iter()
             .map(|p| {
-                Move::iter()
+                [Move::Left, Move::Right, Move::Up, Move::Down].into_iter()
                     .filter(|&m| self.is_empty(&p.moved(m)))
                     .collect()
             }).collect()

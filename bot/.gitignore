@@ -6,6 +6,7 @@ games/*.jsonl
 
 # Profiling outputs
 perf.data
+perf.data.old
 flamegraph.svg
 
 # Python

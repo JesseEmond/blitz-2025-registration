@@ -73,7 +73,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let params = mcts::SearchParams::<MCTS>::new(
                 mcts::EvalCallsBudget { max_evals: 1000 },
-                search::ThreatsAreFarEval {});
+                search::ThreatsAreFarEval {},
+                /*seed=*/42);
             let algorithm = mcts::sampling_algorithm(black_box(params));
             algorithm.search(&black_box(state.clone()))
         });
@@ -97,7 +98,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let params = mcts::SearchParams::<MCTS>::new(
                 mcts::EvalCallsBudget { max_evals: 1000 },
-                search::ThreatsAreFarEval {});
+                search::ThreatsAreFarEval {},
+                /*seed=*/42);
             let algorithm = mcts::uct_algorithm(black_box(params), black_box(1.0), black_box(100));
             algorithm.search(&black_box(state.clone()))
         });

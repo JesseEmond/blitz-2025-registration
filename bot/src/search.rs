@@ -101,8 +101,8 @@ impl Bot {
             mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
             TicksSurvivedEval {},
             self.seed);
-        // let algorithm = mcts::sampling_algorithm(params);
-        let algorithm = mcts::uct_algorithm(params, 1.0, 100);
+        // let algorithm = mcts::uct_algorithm(params, 2_f32.sqrt(), 100);
+        let algorithm = mcts::sampling_algorithm(params);
         algorithm.search(&self.state)
     }
 
