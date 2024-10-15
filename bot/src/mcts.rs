@@ -36,9 +36,9 @@ pub trait MCTS: Sized {
     type Action: Clone + PartialEq;
     /// State of the game.
     type State: Clone + SearchState<Self>;
-    /// Evaluator of a state's goodness.
 
     // Search related
+    /// Evaluator of a state's goodness.
     type Evaluator: Evaluator<Self>;
     /// Policy to use while picking moves during playout simulation.
     type RolloutPolicy: SimulationPolicy<Self>;
@@ -61,6 +61,7 @@ pub trait SearchState<Spec: MCTS> {
 pub type Score = f32;
 pub trait Evaluator<Spec: MCTS> {
     /// Goodness score of this state. Higher is better.
+    /// Note: 'state' might not be terminal.
     fn evaluate(&self, state: &Spec::State) -> Score;
 }
 
@@ -96,11 +97,11 @@ impl<'a, Spec: MCTS> Algorithm<'a, Spec> {
         let mut outcome = Outcome::new();
         while !self.params.search_is_done() {
             let decided = Vec::new();
-            self.component.reset();
             outcome.update_best(
                 self.component.execute(&mut self.params, &state, decided));
         }
         let mut score = outcome.score;
+        // Evaluate current state's score if we did not have time to search.
         if outcome.is_empty() {
             score = self.params.evaluate(state);
         }
@@ -169,12 +170,10 @@ impl<Spec: MCTS> Outcome<Spec> {
 /// This is effectively an element of the grammar of MCTS search algorithms.
 pub trait SearchComponent<Spec: MCTS> {
     /// Executes the component (ensuring to check the budget) at a given state.
+    /// Assumption: returns the best sequence of actions seen so far by this
+    /// component.
     fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
                decided: Vec<Spec::Action>) -> Outcome<Spec>;
-    /// Called at the start of a nested execution, to only compute locally best
-    /// solutions. Should be called whenever the sequence of 'decided' actions
-    /// is changed, before calling 'execute' of a nested component.
-    fn reset(&mut self);
 }
 
 /// Follow a simulation policy until a terminal state or max configured rollout
@@ -207,9 +206,6 @@ impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
         }
         self.yielder.yield_best(params, &state, decided).clone()
     }
-    fn reset(&mut self) {
-        self.yielder = Yielder::new();
-    }
 }
 
 /// Repeat a subcomponent a fixed amount of times, return the last iteration's
@@ -234,9 +230,6 @@ impl<Spec: MCTS> SearchComponent<Spec> for Repeat<'_, Spec> {
                 self.invoker.invoke(params, state, decided.clone()));
         }
         best_outcome
-    }
-    fn reset(&mut self) {
-        self.invoker.reset();
     }
 }
 
@@ -263,14 +256,10 @@ impl<Spec: MCTS> SearchComponent<Spec> for Step<'_, Spec> {
             assert!(best_outcome.actions.len() > rollout_length);
             let action = best_outcome.actions[rollout_length].clone();
             decided.push(action.clone());
-            self.reset();
             state.apply_action(action);
             rollout_length += 1;
         }
         best_outcome
-    }
-    fn reset(&mut self) {
-        self.invoker.reset();
     }
 }
 
@@ -291,15 +280,11 @@ impl<Spec: MCTS> SearchComponent<Spec> for LookAhead<'_, Spec> {
         for action in state.generate_actions().into_iter() {
             let mut state = state.clone();
             decided.push(action.clone());
-            self.reset();
             state.apply_action(action);
             best_outcome.update_best(self.invoker.invoke(params, &state, decided.clone()));
             decided.pop();
         }
         best_outcome
-    }
-    fn reset(&mut self) {
-        self.invoker.reset();
     }
 }
 
@@ -369,14 +354,10 @@ impl<Spec: MCTS> SearchComponent<Spec> for Select<'_, Spec> {
         let mut decided = decided;
         let mut state = state.clone();
         let node = self.selection(&mut state, &mut decided, params);
-        self.reset();
         self.expand(node, &state);
         let outcome = self.invoker.invoke(params, &state, decided);
         self.back_propagate(node, outcome.score);
         outcome
-    }
-    fn reset(&mut self) {
-        self.invoker.reset();
     }
 }
 
@@ -452,9 +433,6 @@ impl<'a, Spec: MCTS> Invoker<'a, Spec> {
         } else {
             self.subcomponent.execute(params, state, decided)
         }
-    }
-    fn reset(&mut self) {
-        self.subcomponent.reset();
     }
 }
 
@@ -576,6 +554,7 @@ impl Ucb1Selector {
         if n_u == 0.0 {
             f32::INFINITY
         } else {
+            // TODO: scale 0-1 based on historical min/max
             let avg = (s_u / n_u as f64) as f32;
             (avg + c * (n.ln() / n_u).sqrt()) as f32
         }

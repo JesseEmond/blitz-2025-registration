@@ -57,6 +57,7 @@ impl EvalResults {
     }
 
     fn average_num_evals(&self) -> f32 {
+        // TODO: Show median instead
         self.num_evals.iter().sum::<usize>() as f32 / self.num_evals.len() as f32
     }
 }

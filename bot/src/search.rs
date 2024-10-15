@@ -37,6 +37,14 @@ impl<Spec: mcts::MCTS<State = State>> mcts::Evaluator<Spec> for ThreatsAreFarEva
     }
 }
 
+pub struct TicksSurvivedEval;
+impl<Spec: mcts::MCTS<State = State>> mcts::Evaluator<Spec> for TicksSurvivedEval {
+    fn evaluate(&self, state: &Spec::State) -> mcts::Score {
+        // Even if game is not done, return current tick number as guidance.
+        state.tick as mcts::Score
+    }
+}
+
 impl<Spec: mcts::MCTS<State = State, Action = Action>>
 mcts::SearchState<Spec> for State {
     fn generate_actions(&self) -> Vec<Action> {
@@ -57,7 +65,7 @@ struct MCTS;
 impl mcts::MCTS for MCTS {
     type Action = Action;
     type State = State;
-    type Evaluator = ThreatsAreFarEval;
+    type Evaluator = TicksSurvivedEval;
     type Budget = mcts::TimeBudget;
     type RolloutPolicy = mcts::RandomPolicy;
 }
@@ -90,7 +98,7 @@ impl Bot {
     fn search_next_move(&mut self) -> mcts::Results<MCTS> {
         let params = mcts::SearchParams::<MCTS>::new(
             mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
-            ThreatsAreFarEval {});
+            TicksSurvivedEval {});
         let algorithm = mcts::sampling_algorithm(params);
         algorithm.search(&self.state)
     }
