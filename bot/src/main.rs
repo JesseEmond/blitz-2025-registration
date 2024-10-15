@@ -21,6 +21,8 @@ struct Cli {
     show_progress: Option<usize>,
     #[arg(long, help = "How many times to re-run each map, to average scores.")]
     samples: Option<usize>,
+    #[arg(long, help = "Force this seed for all evaluations. If unset, pick based on run index.")]
+    seed: Option<u64>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -115,15 +117,17 @@ fn main() {
                  parallelism, cpus);
     }
     for chunk_maps in maps.chunks(parallelism) {
+        // TODO: different seeds across chunks!
         let main_seed = 0;
         let (map, other_maps) = chunk_maps.split_first().unwrap();
         let other_handles: Vec<thread::JoinHandle<EvalResults>> = other_maps
             .into_iter().enumerate().map(|(i, map)| {
                 let map = map.clone();
-                let seed = (main_seed + 1 + i) as u64;
+                let seed = cli.seed.unwrap_or((main_seed + 1 + i) as u64);
                 thread::spawn(move || { evaluate_map(map, cli.show_progress, seed) })
             }).collect();
-        results.push(evaluate_map(map.clone(), cli.show_progress, main_seed as u64));
+        let seed = cli.seed.unwrap_or(main_seed as u64);
+        results.push(evaluate_map(map.clone(), cli.show_progress, seed));
         for handle in other_handles {
             results.push(handle.join().unwrap());
         }

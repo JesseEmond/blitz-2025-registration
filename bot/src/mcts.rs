@@ -95,7 +95,7 @@ impl<'a, Spec: MCTS> Algorithm<'a, Spec> {
     /// Search from a given state. Only called once.
     pub fn search(mut self, state: &Spec::State) -> Results<Spec> {
         let mut outcome = Outcome::new();
-        while !self.params.search_is_done() {
+        while !self.params.search_is_done() && !state.is_terminal() {
             let decided = Vec::new();
             outcome.update_best(
                 self.component.execute(&mut self.params, &state, decided));
@@ -190,19 +190,17 @@ impl<Spec: MCTS> Simulate<Spec> {
 impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
     fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
                decided: Vec<Spec::Action>) -> Outcome<Spec> {
-        if params.search_is_done() {
+        if params.search_is_done() || params.state_is_done(&state, decided.len()) {
             return self.yielder.best.clone();
         }
-        let mut state = state.clone();
-        let mut rollout_len = decided.len();
         let mut decided = decided;
-        while !params.state_is_done(&state, rollout_len) {
+        let mut state = state.clone();
+        while !params.state_is_done(&state, decided.len()) {
             let state_actions = state.generate_actions();
             assert!(!state_actions.is_empty(), "Empty actions on non-terminal state");
             let action = self.policy.pick_action(&state, &state_actions);
             decided.push(action.clone());
             state.apply_action(action);
-            rollout_len += 1;
         }
         self.yielder.yield_best(params, &state, decided).clone()
     }
@@ -245,19 +243,16 @@ impl<'a, Spec: MCTS> Step<'a, Spec> {
 impl<Spec: MCTS> SearchComponent<Spec> for Step<'_, Spec> {
     fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
                decided: Vec<Spec::Action>) -> Outcome<Spec> {
-        let mut rollout_length = decided.len();
         let mut decided = decided;
         let mut state = state.clone();
         let mut best_outcome = Outcome::new();
-        while !params.state_is_done(&state, rollout_length) {
-            if params.search_is_done() { break; }
+        while !params.state_is_done(&state, decided.len()) && !params.search_is_done() {
             best_outcome.update_best(
                 self.invoker.invoke(params, &state, decided.clone()));
-            assert!(best_outcome.actions.len() > rollout_length);
-            let action = best_outcome.actions[rollout_length].clone();
+            assert!(best_outcome.actions.len() > decided.len());
+            let action = best_outcome.actions[decided.len()].clone();
             decided.push(action.clone());
             state.apply_action(action);
-            rollout_length += 1;
         }
         best_outcome
     }
@@ -324,7 +319,7 @@ impl<'a, Spec: MCTS> Select<'a, Spec> {
         node
     }
     fn expand(&mut self, node: NodeId, state: &Spec::State) {
-        assert!(!self.tree.get(node).is_expanded());
+        assert!(!self.tree.get(node).is_expanded() || state.is_terminal());
         let children = state.generate_actions().into_iter()
             .map(|a| Child {
                 action: a,
@@ -440,7 +435,8 @@ impl<Spec: MCTS> Yielder<Spec> {
 }
 
 /// INVOKE (fig 2. in arXiv:1208.4692), helper to call a sub-search component.
-/// Ensures that no sub-search algorithm is called when a state is terminal.
+/// Unlike the paper, we rely on the sub-search component returning the best
+/// outcome seen so far if the state is terminal.
 struct Invoker<'a, Spec: MCTS> {
     subcomponent: Box<dyn SearchComponent<Spec> + 'a>,
 }
@@ -450,11 +446,11 @@ impl<'a, Spec: MCTS> Invoker<'a, Spec> {
     }
     fn invoke(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
               decided: Vec<Spec::Action>) -> Outcome<Spec> {
-        if state.is_terminal() {
-            Outcome { actions: decided, score: params.evaluate(state) }
-        } else {
-            self.subcomponent.execute(params, state, decided)
-        }
+        // Note: we don't handle the terminal state here. Otherwise, we are not
+        // propagating the 'best outcome seen' result properly.
+        // Unsure if this is an issue with assumptions made here vs. in the
+        // paper.
+        self.subcomponent.execute(params, state, decided)
     }
 }
 
@@ -476,7 +472,7 @@ impl<Spec: MCTS> Node<Spec> {
         Self { visits: 0, children: vec![], parent }
     }
     fn is_expanded(&self) -> bool {
-        !self.children.is_empty()
+        self.visits > 0
     }
 }
 pub struct Child<Spec: MCTS> {
