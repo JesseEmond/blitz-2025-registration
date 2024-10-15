@@ -116,9 +116,9 @@ fn main() {
                          "unrealistically be reduced and underestimate scores."),
                  parallelism, cpus);
     }
-    for chunk_maps in maps.chunks(parallelism) {
-        // TODO: different seeds across chunks!
-        let main_seed = 0;
+    for (chunk_idx, chunk_maps) in maps.chunks(parallelism).enumerate() {
+        let index = chunk_idx * parallelism;
+        let main_seed = index;
         let (map, other_maps) = chunk_maps.split_first().unwrap();
         let other_handles: Vec<thread::JoinHandle<EvalResults>> = other_maps
             .into_iter().enumerate().map(|(i, map)| {
