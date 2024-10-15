@@ -10,6 +10,7 @@ use devnull_bot::simulation::Style;
 
 struct MCTS;
 impl mcts::MCTS for MCTS {
+    type ActionSpace = search::ActionSpace;
     type Action = search::Action;
     type State = simulation::State;
     type Evaluator = search::ThreatsAreFarEval;

@@ -87,7 +87,8 @@ impl Bot {
         let results = self.search_next_move();
         println!("Search did {} evals, best score: {}",
                  results.stats.num_evals, results.stats.highest_score_seen);
-        let picked = results.next_action().expect("search empty results");
+        let picked = results.next_action::<MCTS>(&self.state)
+            .expect("search empty results");
 
         self.state.simulate_tick(SimulationAction::Move { direction: picked });
         picked
@@ -96,18 +97,19 @@ impl Bot {
     /// Pick our next move and apply it locally, silently.
     pub fn self_play_tick(&mut self) -> mcts::Stats {
         let results = self.search_next_move();
-        let action = results.next_action().expect("empty search");
+        let action = results.next_action::<MCTS>(&self.state)
+            .expect("empty search");
         self.state.simulate_tick(SimulationAction::Move { direction: action });
         results.stats
     }
 
-    fn search_next_move(&mut self) -> mcts::Results<MCTS> {
+    fn search_next_move(&mut self) -> mcts::Results {
         let params = mcts::SearchParams::<MCTS>::new(
             mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
             TicksSurvivedEval {},
             self.seed);
-        // let algorithm = mcts::uct_algorithm(params, 2_f32.sqrt(), 100);
-        let algorithm = mcts::sampling_algorithm(params);
+        let algorithm = mcts::uct_algorithm(params, 2_f32.sqrt(), 100);
+        // let algorithm = mcts::sampling_algorithm(params);
         algorithm.search(&self.state)
     }
 

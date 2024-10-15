@@ -20,7 +20,7 @@
 // TODO: split to its own module, put interfaces vs. implementations in diff files
 
 use rand::SeedableRng;
-use rand::seq::SliceRandom;
+use rand::seq::IteratorRandom;
 use rand_chacha::ChaCha8Rng;
 use std::time::{Duration, Instant};
 
@@ -73,8 +73,8 @@ pub trait Evaluator<Spec: MCTS> {
 
 /// Rollout policy for picking moves during simulation.
 pub trait SimulationPolicy<Spec: MCTS> {
-    /// For a given state, pick the next action to take.
-    fn pick_action(&mut self, state: &Spec::State, actions: &Spec::ActionSpace) -> Spec::Action;
+    /// For a given state, pick the index of the next action to take.
+    fn pick_action(&mut self, state: &Spec::State, actions: &Spec::ActionSpace) -> usize;
 }
 
 /// Search budget, called onced per evaluation function evaluation to decide if
@@ -95,7 +95,7 @@ impl<'a, Spec: MCTS> Algorithm<'a, Spec> {
     }
 
     /// Search from a given state. Only called once.
-    pub fn search(mut self, state: &Spec::State) -> Results<Spec> {
+    pub fn search(mut self, state: &Spec::State) -> Results {
         let mut outcome = Outcome::new();
         while !self.params.search_is_done() && !state.is_terminal() {
             let decided = Vec::new();
@@ -107,17 +107,18 @@ impl<'a, Spec: MCTS> Algorithm<'a, Spec> {
         if outcome.is_empty() {
             score = self.params.evaluate(state);
         }
-        Results { stats: self.params.stats, actions: outcome.actions, score }
+        Results { stats: self.params.stats, action_indices: outcome.actions, score }
     }
 }
-pub struct Results<Spec: MCTS> {
+pub struct Results {
     pub stats: Stats,
     pub score: Score,
-    actions: Vec<Spec::Action>,
+    action_indices: Vec<usize>,
 }
-impl<Spec: MCTS> Results<Spec> {
-    pub fn next_action(&self) -> Option<Spec::Action> {
-        self.actions.iter().next().cloned()
+impl Results {
+    pub fn next_action<Spec: MCTS>(&self, state: &Spec::State) -> Option<Spec::Action> {
+        self.action_indices.iter().next()
+            .map(|&idx| state.generate_actions()[idx].clone())
     }
 }
 pub struct Stats {
@@ -143,22 +144,18 @@ impl Stats {
 // Meta components of the search algorihtms.
 
 /// Outcome of a sub-search component.
-pub struct Outcome<Spec: MCTS> {
+#[derive(Clone)]
+pub struct Outcome {
     /// Full sequence of actions picked by the search component.
-    pub actions: Vec<Spec::Action>,
+    pub actions: Vec<usize>,
     /// Score obtained in the process.
     pub score: Score,
 }
-impl<Spec: MCTS> Clone for Outcome<Spec> {
-    fn clone(&self) -> Self {
-        Self { actions: self.actions.clone(), score: self.score }
-    }
-}
-impl<Spec: MCTS> Outcome<Spec> {
+impl Outcome {
     fn new() -> Self {
         Self { score: Score::MIN, actions: Vec::new() }
     }
-    fn update_best(&mut self, mut other: Outcome<Spec>) {
+    fn update_best(&mut self, mut other: Outcome) {
         if other.score > self.score {
             std::mem::swap(self, &mut other);
         }
@@ -175,14 +172,14 @@ pub trait SearchComponent<Spec: MCTS> {
     /// Assumption: returns the best sequence of actions seen so far by this
     /// component.
     fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
-               decided: Vec<Spec::Action>) -> Outcome<Spec>;
+               decided: Vec<usize>) -> Outcome;
 }
 
 /// Follow a simulation policy until a terminal state or max configured rollout
 /// length, yield the best sequence seen so far.
 pub struct Simulate<Spec: MCTS> {
     policy: Spec::RolloutPolicy,
-    yielder: Yielder<Spec>,
+    yielder: Yielder,
 }
 impl<Spec: MCTS> Simulate<Spec> {
     pub fn new(policy: Spec::RolloutPolicy) -> Self {
@@ -191,7 +188,7 @@ impl<Spec: MCTS> Simulate<Spec> {
 }
 impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
     fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
-               decided: Vec<Spec::Action>) -> Outcome<Spec> {
+               decided: Vec<usize>) -> Outcome {
         if params.search_is_done() || params.state_is_done(&state, decided.len()) {
             return self.yielder.best.clone();
         }
@@ -199,9 +196,9 @@ impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
         let mut state = state.clone();
         while !params.state_is_done(&state, decided.len()) {
             let state_actions = state.generate_actions();
-            let action = self.policy.pick_action(&state, &state_actions);
-            decided.push(action.clone());
-            state.apply_action(action);
+            let action_idx = self.policy.pick_action(&state, &state_actions);
+            decided.push(action_idx);
+            state.apply_action(state_actions[action_idx].clone());
         }
         self.yielder.yield_best(params, &state, decided).clone()
     }
@@ -221,7 +218,7 @@ impl<'a, Spec: MCTS> Repeat<'a, Spec> {
 }
 impl<Spec: MCTS> SearchComponent<Spec> for Repeat<'_, Spec> {
     fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
-               decided: Vec<Spec::Action>) -> Outcome<Spec> {
+               decided: Vec<usize>) -> Outcome {
         let mut best_outcome = Outcome::new();
         for _ in 0..self.times {
             if params.search_is_done() { break; }
@@ -243,7 +240,7 @@ impl<'a, Spec: MCTS> Step<'a, Spec> {
 }
 impl<Spec: MCTS> SearchComponent<Spec> for Step<'_, Spec> {
     fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
-               decided: Vec<Spec::Action>) -> Outcome<Spec> {
+               decided: Vec<usize>) -> Outcome {
         let mut decided = decided;
         let mut state = state.clone();
         let mut best_outcome = Outcome::new();
@@ -251,8 +248,9 @@ impl<Spec: MCTS> SearchComponent<Spec> for Step<'_, Spec> {
             best_outcome.update_best(
                 self.invoker.invoke(params, &state, decided.clone()));
             assert!(best_outcome.actions.len() > decided.len());
-            let action = best_outcome.actions[decided.len()].clone();
-            decided.push(action.clone());
+            let action_idx = best_outcome.actions[decided.len()].clone();
+            decided.push(action_idx);
+            let action = state.generate_actions()[action_idx].clone();
             state.apply_action(action);
         }
         best_outcome
@@ -270,12 +268,15 @@ impl<'a, Spec: MCTS> LookAhead<'a, Spec> {
 }
 impl<Spec: MCTS> SearchComponent<Spec> for LookAhead<'_, Spec> {
     fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
-               decided: Vec<Spec::Action>) -> Outcome<Spec> {
+               decided: Vec<usize>) -> Outcome {
+        if state.is_terminal() {
+            return Outcome::new();
+        }
         let mut decided = decided;
         let mut best_outcome = Outcome::new();
-        for action in state.generate_actions().into_iter() {
+        for (action_idx, action) in state.generate_actions().into_iter().enumerate() {
             let mut state = state.clone();
-            decided.push(action.clone());
+            decided.push(action_idx);
             state.apply_action(action);
             best_outcome.update_best(self.invoker.invoke(params, &state, decided.clone()));
             decided.pop();
@@ -296,24 +297,24 @@ impl<'a, Spec: MCTS> Select<'a, Spec> {
                subcomponent: Box<dyn SearchComponent<Spec> + 'a>) -> Self {
         Self { selector, invoker: Invoker::new(subcomponent), tree: Tree::new() }
     }
-    fn find_node(&self, actions: &Vec<Spec::Action>) -> NodeId {
+    fn find_node(&self, actions: &Vec<usize>) -> NodeId {
         let mut node = self.tree.root;
-        for a in actions.into_iter() {
-            let child_idx = self.tree.child_idx_from_action(node, a);
-            node = self.tree.get(node).children[child_idx].to;
+        for child_idx in actions.into_iter() {
+            node = self.tree.get(node).children[*child_idx].to;
         }
         node
     }
     fn selection(&self, state: &mut Spec::State,
-                 actions: &mut Vec<Spec::Action>,
+                 actions: &mut Vec<usize>,
                  params: &mut SearchParams<Spec>) -> NodeId {
         let mut node = self.find_node(actions);
         while self.tree.get(node).is_expanded() {
             if params.state_is_done(&state, actions.len()) {
                 break;
             }
-            let child = self.selector.select_node(&params, &self.tree.get(node));
-            actions.push(child.action.clone());
+            let child_idx = self.selector.select_node(&params, &self.tree.get(node));
+            actions.push(child_idx);
+            let child = &self.tree.get(node).children[child_idx];
             state.apply_action(child.action.clone());
             node = child.to;
         }
@@ -321,12 +322,12 @@ impl<'a, Spec: MCTS> Select<'a, Spec> {
     }
     fn expand(&mut self, node: NodeId, state: &Spec::State) {
         assert!(!self.tree.get(node).is_expanded() || state.is_terminal());
-        let children = state.generate_actions().into_iter()
-            .map(|a| Child {
+        let children = state.generate_actions().into_iter().enumerate()
+            .map(|(idx, a)| Child {
                 action: a,
                 score_sum: 0.0,
                 visits: 0,
-                to: self.tree.new_node(node),
+                to: self.tree.new_node(node, idx),
             }).collect();
         self.tree.get_mut(node).children = children;
     }
@@ -335,7 +336,7 @@ impl<'a, Spec: MCTS> Select<'a, Spec> {
         while node != self.tree.root {
             let parent = self.tree.get(node).parent;
             self.tree.get_mut(node).visits += 1;
-            let child_idx = self.tree.child_idx_from_node_id(parent, node);
+            let child_idx = self.tree.get(node).offset_in_parent;
             let child = &mut self.tree.get_mut(parent).children[child_idx];
             child.score_sum += score as f64;
             child.visits += 1;
@@ -346,10 +347,13 @@ impl<'a, Spec: MCTS> Select<'a, Spec> {
 }
 impl<Spec: MCTS> SearchComponent<Spec> for Select<'_, Spec> {
     fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
-               decided: Vec<Spec::Action>) -> Outcome<Spec> {
+               decided: Vec<usize>) -> Outcome {
         let mut decided = decided;
         let mut state = state.clone();
         let node = self.selection(&mut state, &mut decided, params);
+        if params.state_is_done(&state, decided.len()) {
+            return Outcome::new();
+        }
         self.expand(node, &state);
         let outcome = self.invoker.invoke(params, &state, decided);
         self.back_propagate(node, outcome.score);
@@ -419,16 +423,16 @@ impl<Spec: MCTS> SearchParams<Spec> {
 
 /// YIELD (fig 2. in arXiv:1208.4692), eval a state, remember and return the
 /// best outcome seen so far.
-struct Yielder<Spec: MCTS> {
-    pub best: Outcome<Spec>
+struct Yielder {
+    pub best: Outcome,
 }
-impl<Spec: MCTS> Yielder<Spec> {
+impl Yielder {
     fn new() -> Self {
-        Self { best: Outcome { score: Score::MIN, actions: Vec::new() } }
+        Self { best: Outcome::new() }
     }
-    fn yield_best(
+    fn yield_best<Spec: MCTS>(
         &mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
-        actions: Vec<Spec::Action>) -> &Outcome<Spec> {
+        actions: Vec<usize>) -> &Outcome {
         let score = params.evaluate(state);
         self.best.update_best(Outcome { score, actions });
         &self.best
@@ -446,7 +450,7 @@ impl<'a, Spec: MCTS> Invoker<'a, Spec> {
         Self { subcomponent }
     }
     fn invoke(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
-              decided: Vec<Spec::Action>) -> Outcome<Spec> {
+              decided: Vec<usize>) -> Outcome {
         // Note: we don't handle the terminal state here. Otherwise, we are not
         // propagating the 'best outcome seen' result properly.
         // Unsure if this is an issue with assumptions made here vs. in the
@@ -457,20 +461,20 @@ impl<'a, Spec: MCTS> Invoker<'a, Spec> {
 
 /// Selects the next child node to explore.
 pub trait Selector<Spec: MCTS> {
-    /// Select the child node to visit from this parent node.
-    fn select_node<'a>(&self, params: &SearchParams<Spec>,
-                       node: &'a Node<Spec>) -> &'a Child<Spec>;
+    /// Select the child node index to visit from this parent node.
+    fn select_node(&self, params: &SearchParams<Spec>, node: &Node<Spec>) -> usize;
 }
 
 /// Node in a MCTS tree.
 pub struct Node<Spec: MCTS> {
     parent: NodeId,
+    offset_in_parent: usize,
     visits: usize,
     children: Vec<Child<Spec>>,
 }
 impl<Spec: MCTS> Node<Spec> {
-    fn new(parent: NodeId) -> Self {
-        Self { visits: 0, children: vec![], parent }
+    fn new(parent: NodeId, offset_in_parent: usize) -> Self {
+        Self { visits: 0, children: vec![], parent, offset_in_parent }
     }
     fn is_expanded(&self) -> bool {
         self.visits > 0
@@ -490,11 +494,11 @@ struct Tree<Spec: MCTS> {
 }
 impl<Spec: MCTS> Tree<Spec> {
     fn new() -> Self {
-        Self { nodes: vec![Node::new(0)], root: 0 }
+        Self { nodes: vec![Node::new(0, 0)], root: 0 }
     }
-    fn new_node(&mut self, parent: NodeId) -> NodeId {
+    fn new_node(&mut self, parent: NodeId, offset_in_parent: usize) -> NodeId {
         let idx = self.nodes.len();
-        self.nodes.push(Node::new(parent));
+        self.nodes.push(Node::new(parent, offset_in_parent));
         idx
     }
     fn get(&self, node: NodeId) -> &Node<Spec> {
@@ -502,18 +506,6 @@ impl<Spec: MCTS> Tree<Spec> {
     }
     fn get_mut(&mut self, node: NodeId) -> &mut Node<Spec> {
         &mut self.nodes[node]
-    }
-    fn child_idx_from_node_id(&self, parent: NodeId, child: NodeId) -> usize {
-        self.get(parent).children.iter().enumerate()
-            .filter(|(_, c)| c.to == child)
-            .map(|(idx, _)| idx).next()
-            .expect("failed to find child")
-    }
-    fn child_idx_from_action(&self, parent: NodeId, action: &Spec::Action) -> usize {
-        self.get(parent).children.iter().enumerate()
-            .filter(|(_, c)| c.action == *action)
-            .map(|(idx, _)| idx).next()
-            .expect("failed to find child")
     }
 }
 
@@ -551,8 +543,8 @@ pub struct RandomPolicy {
 
 impl<Spec: MCTS> SimulationPolicy<Spec> for RandomPolicy {
     fn pick_action(&mut self, _state: &Spec::State,
-                   actions: &Spec::ActionSpace) -> Spec::Action {
-        actions.choose(&mut self.rng).unwrap().clone()
+                   actions: &Spec::ActionSpace) -> usize {
+        (0..actions.len()).choose(&mut self.rng).unwrap()
     }
 }
 
@@ -581,11 +573,11 @@ impl Ucb1Selector {
     }
 }
 impl<Spec: MCTS> Selector<Spec> for Ucb1Selector {
-    fn select_node<'a>(&self, params: &SearchParams<Spec>,
-                       node: &'a Node<Spec>) -> &'a Child<Spec> {
-        node.children.iter()
-            .max_by_key(|c| OrderedFloat(self.ucb1(params, node.visits, c)))
-            .unwrap()
+    fn select_node(&self, params: &SearchParams<Spec>,
+                       node: &Node<Spec>) -> usize {
+        node.children.iter().enumerate()
+            .max_by_key(|(_, c)| OrderedFloat(self.ucb1(params, node.visits, c)))
+            .map(|(idx, _)| idx).unwrap()
     }
 }
 
@@ -687,11 +679,11 @@ mod tests {
     /// Mock search subcomponent.
     struct MockComponent {
         /// Predecided sequence of values to return.
-        returns: Vec<Outcome<MockMCTS>>,
+        returns: Vec<Outcome>,
     }
     impl SearchComponent<MockMCTS> for MockComponent {
         fn execute(&mut self, _params: &mut SearchParams<MockMCTS>,
-                   _state: &MockState, _decided: Vec<FakeAction>) -> Outcome<MockMCTS> {
+                   _state: &MockState, _decided: Vec<usize>) -> Outcome<MockMCTS> {
             assert!(!self.returns.is_empty());
             self.returns.remove(0)
         }
