@@ -52,7 +52,7 @@ pub trait MCTS: Sized {
 /// State within the game.
 pub trait SearchState<Spec: MCTS> {
     /// Possible actions in this current state.
-    /// Must return actions if the state is not terminal.
+    /// Only called on non-terminal states. Must return actions.
     fn generate_actions(&self) -> Spec::ActionSpace;
     /// Apply the given action, advance the state.
     fn apply_action(&mut self, action: Spec::Action);
@@ -256,7 +256,9 @@ impl<Spec: MCTS> SearchComponent<Spec> for Step<'_, Spec> {
         while !params.state_is_done(&state, decided.len()) && !params.search_is_done() {
             best_outcome.update_best(
                 self.invoker.invoke(params, &state, decided.clone()));
-            assert!(best_outcome.actions.len() > decided.len());
+            assert!(best_outcome.actions.len() > decided.len(),
+                    "Would lookup idx {} in best outcome of size {}",
+                    decided.len(), best_outcome.actions.len());
             let action_idx = best_outcome.actions[decided.len()].clone();
             decided.push(action_idx);
             let action = state.generate_actions()[action_idx].clone();
@@ -327,6 +329,8 @@ impl<'a, Spec: MCTS> Select<'a, Spec> {
     fn selection(&self, state: &mut Spec::State,
                  actions: &mut Vec<usize>,
                  params: &mut SearchParams<Spec>) -> NodeId {
+        // By design, the following is true, skip for speed purposes.
+        // assert!(self.find_node(actions) == self.start_node);
         let mut node = self.start_node;
         while self.tree.get(node).is_expanded() {
             if params.state_is_done(&state, actions.len()) {
@@ -341,7 +345,11 @@ impl<'a, Spec: MCTS> Select<'a, Spec> {
         node
     }
     fn expand(&mut self, node: NodeId, state: &Spec::State) {
-        assert!(!self.tree.get(node).is_expanded() || state.is_terminal());
+        if state.is_terminal() {
+            // Would not return actions, and by contract we don't generate
+            // actions on terminal states.
+            return;
+        }
         let children = state.generate_actions().into_iter().enumerate()
             .map(|(idx, a)| Child {
                 action: a,
@@ -373,9 +381,6 @@ impl<Spec: MCTS> SearchComponent<Spec> for Select<'_, Spec> {
         let node = self.selection(&mut state, &mut decided, params);
         // Note: deliberately not calling our own reset here, to avoid the cost.
         self.invoker.reset(&decided);
-        if params.state_is_done(&state, decided.len()) {
-            return Outcome::new();
-        }
         self.expand(node, &state);
         let outcome = self.invoker.invoke(params, &state, decided);
         self.back_propagate(node, outcome.score);
