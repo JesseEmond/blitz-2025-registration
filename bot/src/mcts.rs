@@ -99,6 +99,7 @@ impl<'a, Spec: MCTS> Algorithm<'a, Spec> {
         let mut outcome = Outcome::new();
         while !self.params.search_is_done() && !state.is_terminal() {
             let decided = Vec::new();
+            self.component.reset(&decided);
             outcome.update_best(
                 self.component.execute(&mut self.params, &state, decided));
         }
@@ -173,6 +174,8 @@ pub trait SearchComponent<Spec: MCTS> {
     /// component.
     fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
                decided: Vec<usize>) -> Outcome;
+    /// Must be called every time 'decided' is changed.
+    fn reset(&mut self, decided: &Vec<usize>);
 }
 
 /// Follow a simulation policy until a terminal state or max configured rollout
@@ -199,8 +202,11 @@ impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
             let action_idx = self.policy.pick_action(&state, &state_actions);
             decided.push(action_idx);
             state.apply_action(state_actions[action_idx].clone());
+            self.reset(&decided);
         }
         self.yielder.yield_best(params, &state, decided).clone()
+    }
+    fn reset(&mut self, _decided: &Vec<usize>) {
     }
 }
 
@@ -227,6 +233,9 @@ impl<Spec: MCTS> SearchComponent<Spec> for Repeat<'_, Spec> {
         }
         best_outcome
     }
+    fn reset(&mut self, decided: &Vec<usize>) {
+        self.invoker.reset(decided);
+    }
 }
 
 /// For the remainder of the steps, run a sub-search to pick the next action.
@@ -252,8 +261,12 @@ impl<Spec: MCTS> SearchComponent<Spec> for Step<'_, Spec> {
             decided.push(action_idx);
             let action = state.generate_actions()[action_idx].clone();
             state.apply_action(action);
+            self.reset(&decided)
         }
         best_outcome
+    }
+    fn reset(&mut self, decided: &Vec<usize>) {
+        self.invoker.reset(decided);
     }
 }
 
@@ -278,10 +291,14 @@ impl<Spec: MCTS> SearchComponent<Spec> for LookAhead<'_, Spec> {
             let mut state = state.clone();
             decided.push(action_idx);
             state.apply_action(action);
+            self.reset(&decided);
             best_outcome.update_best(self.invoker.invoke(params, &state, decided.clone()));
             decided.pop();
         }
         best_outcome
+    }
+    fn reset(&mut self, decided: &Vec<usize>) {
+        self.invoker.reset(decided);
     }
 }
 
@@ -291,11 +308,14 @@ pub struct Select<'a, Spec: MCTS> {
     invoker: Invoker<'a, Spec>,
     selector: Box<dyn Selector<Spec>>,
     tree: Tree<Spec>,
+    start_node: NodeId,
 }
 impl<'a, Spec: MCTS> Select<'a, Spec> {
     pub fn new(selector: Box<dyn Selector<Spec>>,
                subcomponent: Box<dyn SearchComponent<Spec> + 'a>) -> Self {
-        Self { selector, invoker: Invoker::new(subcomponent), tree: Tree::new() }
+        let tree = Tree::new();
+        let start_node = tree.root;
+        Self { selector, invoker: Invoker::new(subcomponent), tree, start_node }
     }
     fn find_node(&self, actions: &Vec<usize>) -> NodeId {
         let mut node = self.tree.root;
@@ -307,7 +327,7 @@ impl<'a, Spec: MCTS> Select<'a, Spec> {
     fn selection(&self, state: &mut Spec::State,
                  actions: &mut Vec<usize>,
                  params: &mut SearchParams<Spec>) -> NodeId {
-        let mut node = self.find_node(actions);
+        let mut node = self.start_node;
         while self.tree.get(node).is_expanded() {
             if params.state_is_done(&state, actions.len()) {
                 break;
@@ -351,6 +371,8 @@ impl<Spec: MCTS> SearchComponent<Spec> for Select<'_, Spec> {
         let mut decided = decided;
         let mut state = state.clone();
         let node = self.selection(&mut state, &mut decided, params);
+        // Note: deliberately not calling our own reset here, to avoid the cost.
+        self.invoker.reset(&decided);
         if params.state_is_done(&state, decided.len()) {
             return Outcome::new();
         }
@@ -358,6 +380,10 @@ impl<Spec: MCTS> SearchComponent<Spec> for Select<'_, Spec> {
         let outcome = self.invoker.invoke(params, &state, decided);
         self.back_propagate(node, outcome.score);
         outcome
+    }
+    fn reset(&mut self, decided: &Vec<usize>) {
+        self.start_node = self.find_node(decided);
+        self.invoker.reset(decided);
     }
 }
 
@@ -456,6 +482,9 @@ impl<'a, Spec: MCTS> Invoker<'a, Spec> {
         // Unsure if this is an issue with assumptions made here vs. in the
         // paper.
         self.subcomponent.execute(params, state, decided)
+    }
+    fn reset(&mut self, decided: &Vec<usize>) {
+        self.subcomponent.reset(decided);
     }
 }
 
