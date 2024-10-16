@@ -90,8 +90,8 @@ impl mcts::MCTS for MCTS {
 
 pub struct Bot {
     pub state: State,
+    pub name: BotName,
     seed: u64,
-    bot: BotName,
 }
 
 impl Bot {
@@ -100,7 +100,7 @@ impl Bot {
     }
 
     pub fn new(state: State, seed: u64, name: BotName) -> Self {
-        Self { state, seed, bot: name }
+        Self { state, seed, name }
     }
 
     /// Update state based on 'game', pick our next move, apply it locally.
@@ -130,7 +130,7 @@ impl Bot {
             mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
             TicksSurvivedEval {},
             self.seed);
-        let algorithm = match self.bot {
+        let algorithm = match self.name {
             BotName::Sampling => mcts::sampling_algorithm(params),
             BotName::IterativeSampling100 => mcts::iterative_sampling_algorithm(params, 100),
             BotName::Uct100RolloutsSqrt2C => mcts::uct_algorithm(params, 2_f32.sqrt(), 100),
