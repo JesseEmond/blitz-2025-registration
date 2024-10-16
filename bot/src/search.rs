@@ -4,6 +4,17 @@ use crate::grid::{Move, Pos};
 use crate::mcts;
 use crate::simulation::{Game, SimulationAction, State};
 
+/// Available bots
+pub enum BotName {
+    /// Use a random sampling search algorithm for the duration of the budget.
+    Sampling,
+    /// Perform 100 sampling iterations, then take a step, repeat.
+    IterativeSampling100,
+    /// MCTS algorithm using 100 rollouts per step, with UCB-1 for node
+    /// selection with c=sqrt(2).
+    Uct100RolloutsSqrt2C,
+}
+
 // Note that below we implement mcts traits for more than just this file's
 // "MCTS", to allow reuse with variants of "MCTS"
 // (e.g. in unit tests/benchmarks that use a different search budget).
@@ -76,11 +87,20 @@ impl mcts::MCTS for MCTS {
 }
 
 pub struct Bot {
-    pub seed: u64,
     pub state: State,
+    seed: u64,
+    bot: BotName,
 }
 
 impl Bot {
+    pub fn new_best(state: State, seed: u64) -> Self {
+        Self::new(state, seed, BotName::Sampling)
+    }
+
+    pub fn new(state: State, seed: u64, name: BotName) -> Self {
+        Self { state, seed, bot: name }
+    }
+
     /// Update state based on 'game', pick our next move, apply it locally.
     pub fn pick_move(&mut self, game: &Game) -> Option<Move> {
         self.state.verify_predictions(game);
@@ -108,8 +128,11 @@ impl Bot {
             mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
             TicksSurvivedEval {},
             self.seed);
-        let algorithm = mcts::uct_algorithm(params, 2_f32.sqrt(), 100);
-        // let algorithm = mcts::sampling_algorithm(params);
+        let algorithm = match self.bot {
+            BotName::Sampling => mcts::sampling_algorithm(params),
+            BotName::IterativeSampling100 => mcts::iterative_sampling_algorithm(params, 100),
+            BotName::Uct100RolloutsSqrt2C => mcts::uct_algorithm(params, 2_f32.sqrt(), 100),
+        };
         algorithm.search(&self.state)
     }
 

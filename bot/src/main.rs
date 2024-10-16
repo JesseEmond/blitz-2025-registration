@@ -86,7 +86,7 @@ fn load_eval_maps(selection: MapSelectionArgGroup) -> map_loader::Result<Vec<Map
 
 fn evaluate_map(map: Map, show_progress: Option<usize>, seed: u64) -> EvalResults {
     println!("Evaluating map {}...", map.name);
-    let mut bot = Bot { state: State::new(map.game), seed };
+    let mut bot = Bot::new_best(State::new(map.game), seed);
     let mut tick_times = Vec::new();
     let mut num_evals = Vec::new();
     while !bot.state.game_over {
