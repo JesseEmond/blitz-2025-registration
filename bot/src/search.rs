@@ -1,10 +1,12 @@
+use clap::ValueEnum;
 use smallvec::SmallVec;
 
 use crate::grid::{Move, Pos};
 use crate::mcts;
 use crate::simulation::{Game, SimulationAction, State};
 
-/// Available bots
+/// Available bot algorithms to use.
+#[derive(ValueEnum, Clone, Debug)]
 pub enum BotName {
     /// Use a random sampling search algorithm for the duration of the budget.
     Sampling,

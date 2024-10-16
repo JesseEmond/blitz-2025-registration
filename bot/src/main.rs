@@ -8,7 +8,7 @@ use rand::seq::SliceRandom;
 
 use devnull_bot::map_loader;
 use devnull_bot::map_loader::{list_map_names, load_map, Map};
-use devnull_bot::search::{Bot};
+use devnull_bot::search::{Bot, BotName};
 use devnull_bot::simulation::{State};
 
 #[derive(Debug, Parser)]
@@ -24,6 +24,8 @@ struct Cli {
     samples: Option<usize>,
     #[arg(long, help = "Force this seed for all evaluations. If unset, pick based on run index.")]
     seed: Option<u64>,
+    #[arg(long, help = "Bot to evaluate. If unset, uses the best known algorithm.")]
+    bot: Option<BotName>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -84,9 +86,15 @@ fn load_eval_maps(selection: MapSelectionArgGroup) -> map_loader::Result<Vec<Map
     Ok(vec![load_map(&name)?])
 }
 
-fn evaluate_map(map: Map, show_progress: Option<usize>, seed: u64) -> EvalResults {
+fn evaluate_map(map: Map, show_progress: Option<usize>, seed: u64,
+                bot_name: Option<BotName>) -> EvalResults {
     println!("Evaluating map {}...", map.name);
-    let mut bot = Bot::new_best(State::new(map.game), seed);
+    let state = State::new(map.game);
+    let mut bot = if let Some(bot_name) = bot_name { 
+        Bot::new(state, seed, bot_name)
+    } else {
+        Bot::new_best(state, seed)
+    };
     let mut tick_times = Vec::new();
     let mut num_evals = Vec::new();
     while !bot.state.game_over {
@@ -124,14 +132,16 @@ fn main() {
         let index = chunk_idx * parallelism;
         let main_seed = index;
         let (map, other_maps) = chunk_maps.split_first().unwrap();
+        let bot = cli.bot.clone();
         let other_handles: Vec<thread::JoinHandle<EvalResults>> = other_maps
             .into_iter().enumerate().map(|(i, map)| {
                 let map = map.clone();
                 let seed = cli.seed.unwrap_or((main_seed + 1 + i) as u64);
-                thread::spawn(move || { evaluate_map(map, cli.show_progress, seed) })
+                let bot = bot.clone();
+                thread::spawn(move || { evaluate_map(map, cli.show_progress, seed, bot) })
             }).collect();
         let seed = cli.seed.unwrap_or(main_seed as u64);
-        results.push(evaluate_map(map.clone(), cli.show_progress, seed));
+        results.push(evaluate_map(map.clone(), cli.show_progress, seed, bot));
         for handle in other_handles {
             results.push(handle.join().unwrap());
         }
