@@ -226,25 +226,27 @@ fn plan_evals(eval_type: EvalType, num_samples: usize, loaded_maps: &Vec<Map>,
 /// Run the targeted evals with the appropriate parallelism.
 fn run_evals(eval_plans: Vec<EvalPlan>, parallelism: usize,
              fixed_seed: Option<u64>) -> Vec<EvalResults> {
-    let mut results = Vec::new();
-    // TODO: each thread read its next eval on its own. Faster evals.
-    for (chunk_idx, chunk_evals) in eval_plans.chunks(parallelism).enumerate() {
-        let index = chunk_idx * parallelism;
-        let main_seed = index;
-        let (main_eval, other_evals) = chunk_evals.split_first().unwrap();
-        let other_handles: Vec<thread::JoinHandle<EvalResults>> = other_evals
-            .into_iter().enumerate().map(|(i, plan)| {
-                let plan = plan.clone();
-                let seed = fixed_seed.unwrap_or((main_seed + 1 + i) as u64);
-                thread::spawn(move || { evaluate_map(plan, seed) })
-            }).collect();
-        let seed = fixed_seed.unwrap_or(main_seed as u64);
-        results.push(evaluate_map(main_eval.clone(), seed));
-        for handle in other_handles {
-            results.push(handle.join().unwrap());
+    let chunk_size = (eval_plans.len() as f32 / parallelism as f32).ceil() as usize;
+    let chunks = eval_plans.chunks(parallelism);
+    thread::scope(|s| {
+        let mut handles = Vec::new();
+        for (chunk_idx, chunk_evals) in chunks.enumerate() {
+            let base_index = chunk_idx * chunk_size;
+            handles.push(s.spawn(move || {
+                let mut results = Vec::new();
+                for (i, plan) in chunk_evals.into_iter().enumerate() {
+                    let seed = fixed_seed.unwrap_or((base_index + i) as u64);
+                    results.push(evaluate_map(plan.clone(), seed));
+                }
+                results
+            }));
         }
-    }
-    results
+        let mut results = Vec::new();
+        for handle in handles {
+            results.extend(handle.join().unwrap());
+        }
+        results
+    })
 }
 
 /// Perform a sign test of wins/losses(/ties, ignored) to determine statistical
