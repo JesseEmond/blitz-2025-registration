@@ -127,7 +127,7 @@ impl Bot {
 
     fn search_next_move(&mut self) -> mcts::Results {
         let params = mcts::SearchParams::<MCTS>::new(
-            mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
+            mcts::TimeBudget { max_time: std::time::Duration::from_millis(5) },
             TicksSurvivedEval {},
             self.seed);
         let algorithm = match self.name {

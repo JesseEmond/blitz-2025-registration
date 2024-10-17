@@ -24,8 +24,8 @@ struct Cli {
     samples: Option<usize>,
     #[arg(long, help = "Force this seed for all evaluations. If unset, pick based on run index.")]
     seed: Option<u64>,
-    #[arg(long, help = "Bot to evaluate. If unset, uses the best known algorithm.")]
-    bot: Option<BotName>,
+    #[clap(flatten)]
+    bot_selection: BotSelectionArgGroup,
 }
 
 #[derive(Debug, clap::Args)]
@@ -35,6 +35,23 @@ struct MapSelectionArgGroup {
     all: bool,
     #[clap(long = "map")]
     map_name: Option<String>,
+}
+
+#[derive(Debug, clap::Args)]
+#[group(multiple = false)]
+struct BotSelectionArgGroup {
+    #[arg(long, help = "Bot to evaluate. If unset, uses the best known algorithm.")]
+    bot: Option<BotName>,
+    #[clap(flatten)]
+    battle: Option<BotBattleArgGroup>,
+}
+
+#[derive(Debug, clap::Args)]
+struct BotBattleArgGroup {
+    #[clap(long, help = "Bot to compare to 'right'.", requires = "right")]
+    left: Option<BotName>,
+    #[clap(long, help = "Bot to compare to 'left'.", requires = "left")]
+    right: Option<BotName>,
 }
 
 fn median<T: std::cmp::Ord + AsPrimitive<f32>>(mut values: Vec<T>) -> f32 {
@@ -54,7 +71,7 @@ enum EvalType {
     Battle { left: BotName, right: BotName },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Copy)]
 enum Winner {
     Left,
     Right,
@@ -115,7 +132,8 @@ impl EvalResults {
                          peak_tick_ms, median_num_evals);
             },
             Self::Battle { info, winner } => {
-                todo!("print");
+                println!("[{}] Game end! Tick: {}, winner: {:?}",
+                         info.name, info.ticks, winner);
             },
         }
     }
@@ -150,7 +168,10 @@ fn evaluate_map(plan: EvalPlan, seed: u64) -> EvalResults {
                 Bot::new_best(state, seed)
             });
         },
-        EvalType::Battle { .. } => todo!("battle"),
+        EvalType::Battle { left, right } => {
+            bots.push(Bot::new(state.clone(), seed, left.clone()));
+            bots.push(Bot::new(state, seed, right.clone()));
+        }
     }
     assert!(bots.len() <= 2, "only support 1 or 2 bots, early exits on first fail");
     let mut tick_times = Vec::new();
@@ -167,12 +188,21 @@ fn evaluate_map(plan: EvalPlan, seed: u64) -> EvalResults {
             num_evals.push(stats.num_evals);
         }
     }
-    let ticks = bots[0].state.tick;
+    let ticks = bots.iter().map(|bot| bot.state.tick).min().unwrap();
     let info = EvalInfo { name: plan.map.name, ticks, eval: plan.eval };
     let results = match info.eval {
         EvalType::Solo { .. } => EvalResults::new_solo_results(
             info, bots[0].state.score(), tick_times, num_evals),
-        EvalType::Battle { .. } => todo!("battle"),
+        EvalType::Battle { .. } => {
+            assert_eq!(bots.len(), 2);
+            let [ref left, ref right] = bots[..] else { panic!("battle requires 2 bots") };
+            let winner = match left.state.tick.cmp(&right.state.tick) {
+                std::cmp::Ordering::Less => Winner::Right,
+                std::cmp::Ordering::Equal => Winner::Tie,
+                std::cmp::Ordering::Greater => Winner::Left,
+            };
+            EvalResults::new_battle_results(info, winner)
+        },
     };
     results.print();
     results
@@ -218,14 +248,20 @@ fn run_evals(eval_plans: Vec<EvalPlan>, parallelism: usize,
 /// Aggregated per-map results for an eval type.
 /// Note: only some fields are set, depending on eval type.
 struct SummaryResults {
+    // Solo evals
     scores: Vec<usize>,
+    // Battle evals
+    left_wins: usize,
+    right_wins: usize,
+    ties: usize,
 }
 
 fn show_results(eval: EvalType, results: Vec<EvalResults>) {
     if results.len() > 1 {  // Don't show summary for single evals
-        let mut summary_results = SummaryResults { scores: Vec::new() };
+        let mut summary_results = SummaryResults {
+            scores: Vec::new(), left_wins: 0, right_wins: 0, ties: 0,
+        };
         println!("\n\n[SUMMARY]");
-        // Show per-map results
         for (name, results) in &results.iter()
             .sorted_by(|a, b| a.name().cmp(&b.name())).chunk_by(|r| r.name()) {
             let map_results = results.cloned().collect();
@@ -256,7 +292,33 @@ fn show_map_results(eval: EvalType, map_name: &String,
             }
             summary.scores.push(score_avg.round() as usize);
         },
-        EvalType::Battle { .. } => todo!("battle map results"),
+        EvalType::Battle { left, right } => {
+            let map_winners: Vec<Winner> = map_results.iter().map(|r| {
+                match r {
+                    &EvalResults::Battle { winner, .. } => winner,
+                    _ => panic!("wrong results for eval type battle"),
+                }}).collect();
+            if map_winners.len() == 1 {
+                let message = match map_winners[0] {
+                    Winner::Left => format!("{:?} won", left),
+                    Winner::Tie => "tie".to_string(),
+                    Winner::Right => format!("{:?} won", right),
+                };
+                println!("[{}]: {} ", map_name, message);
+            } else {
+                let left_wins = map_winners.iter()
+                    .filter(|&&w| w == Winner::Left).count();
+                let right_wins = map_winners.iter()
+                    .filter(|&&w| w == Winner::Right).count();
+                let ties = map_winners.len() - left_wins - right_wins;
+                println!("[{}]: {} {:?} wins, {} ties, {} {:?} wins", map_name,
+                         left_wins, left, ties, right_wins, right);
+                // TODO: Compute statistical significance
+                summary.left_wins += left_wins;
+                summary.right_wins += right_wins;
+                summary.ties += ties;
+            }
+        },
     }
 }
 
@@ -273,7 +335,11 @@ fn show_summary_results(eval: EvalType, summary: SummaryResults) {
             println!("Per map scores:");
             println!("{:?}", summary.scores);
         },
-        EvalType::Battle { .. } => todo!("battle summary results"),
+        EvalType::Battle { left, right } => {
+            println!("{:?}: {} wins, ties: {}, {:?}: {} wins", left,
+                     summary.left_wins, summary.ties, right, summary.right_wins);
+            // TODO: Compute statistical significance
+        },
     }
 }
 
@@ -291,8 +357,14 @@ fn main() {
     }
     let fixed_seed = cli.seed;
     let show_progress = cli.show_progress;
-    // TODO: Support battle between 2 bots.
-    let eval_type = EvalType::Solo { name: cli.bot };
+    let eval_type = if let Some(battle) = cli.bot_selection.battle {
+        EvalType::Battle {
+            left: battle.left.expect("missing left"),
+            right: battle.right.expect("missing right"),
+        }
+    } else {
+        EvalType::Solo { name: cli.bot_selection.bot }
+    };
 
     let maps = load_eval_maps(cli.map_selection).expect("Error loading map");
     let evals = plan_evals(eval_type.clone(), repeats, &maps, show_progress);
