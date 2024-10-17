@@ -6,7 +6,7 @@ use crate::mcts;
 use crate::simulation::{Game, SimulationAction, State};
 
 /// Available bot algorithms to use.
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Debug, Copy)]
 pub enum BotName {
     /// Use a random sampling search algorithm for the duration of the budget.
     Sampling,

@@ -5,6 +5,7 @@ use itertools::Itertools;
 use clap::Parser;
 use num_traits::AsPrimitive;
 use rand::seq::SliceRandom;
+use statrs::distribution::{Binomial, Discrete};
 
 use devnull_bot::map_loader;
 use devnull_bot::map_loader::{list_map_names, load_map, Map};
@@ -226,6 +227,7 @@ fn plan_evals(eval_type: EvalType, num_samples: usize, loaded_maps: &Vec<Map>,
 fn run_evals(eval_plans: Vec<EvalPlan>, parallelism: usize,
              fixed_seed: Option<u64>) -> Vec<EvalResults> {
     let mut results = Vec::new();
+    // TODO: each thread read its next eval on its own. Faster evals.
     for (chunk_idx, chunk_evals) in eval_plans.chunks(parallelism).enumerate() {
         let index = chunk_idx * parallelism;
         let main_seed = index;
@@ -243,6 +245,47 @@ fn run_evals(eval_plans: Vec<EvalPlan>, parallelism: usize,
         }
     }
     results
+}
+
+/// Perform a sign test of wins/losses(/ties, ignored) to determine statistical
+/// significance of observed wins/losses between two versions.
+fn compute_p_value(left_wins: usize, ties: usize, right_wins: usize) -> f64 {
+    let n = (left_wins + right_wins) as u64;
+    if n == 0 {
+        assert!(ties > 0);
+        return 1.0;  // All ties, no significant difference between them.
+    }
+    // Perform a two-sided binomial test over the null hypothesis of both having
+    // a 50/50 chance of winning.
+    let binomial = Binomial::new(0.5, n).unwrap();
+    let k = right_wins as u64;  // arbitrarily treat 'right' wins as successes
+    let prob_k = binomial.pmf(k);
+    // Similar to scipy, tolerate some floating point relative error:
+    // https://github.com/scipy/scipy/blob/v1.14.1/scipy/stats/_binomtest.py#L305
+    const RELATIVE_ERROR: f64 = 1.0 + 1e-7;
+    let mut p_value = prob_k;
+    p_value += (0..k).map(|i| binomial.pmf(i))
+        .filter(|&prob_i| prob_i <= prob_k * RELATIVE_ERROR).sum::<f64>();
+    p_value += ((k+1)..=n).map(|i| binomial.pmf(i))
+        .filter(|&prob_i| prob_i <= prob_k * RELATIVE_ERROR).sum::<f64>();
+    p_value
+}
+
+/// Qualify the statistical significance of left/right wins/losses/ties, in
+/// natural language.
+fn qualify_significance(left_wins: usize, ties: usize, right_wins: usize,
+                        left: BotName, right: BotName) -> String {
+    const ALPHA: f64 = 0.05;  // False positives accepted
+    let p_value = compute_p_value(left_wins, ties, right_wins);
+    if p_value <= ALPHA {
+        if left_wins > right_wins {
+            format!("{:?} better than {:?} (p-value={:.3})", left, right, p_value)
+        } else {
+            format!("{:?} better than {:?} (p-value={:.3})", right, left, p_value)
+        }
+    } else {
+        format!("not significant (p-value={:.3})", p_value)
+    }
 }
 
 /// Aggregated per-map results for an eval type.
@@ -311,9 +354,11 @@ fn show_map_results(eval: EvalType, map_name: &String,
                 let right_wins = map_winners.iter()
                     .filter(|&&w| w == Winner::Right).count();
                 let ties = map_winners.len() - left_wins - right_wins;
-                println!("[{}]: {} {:?} wins, {} ties, {} {:?} wins", map_name,
-                         left_wins, left, ties, right_wins, right);
-                // TODO: Compute statistical significance
+                let significance = qualify_significance(
+                    left_wins, ties, right_wins, left, right);
+                println!("[{}]: {} {:?} wins, {} ties, {} {:?} wins -- {}",
+                         map_name, left_wins, left, ties, right_wins, right,
+                         significance);
                 summary.left_wins += left_wins;
                 summary.right_wins += right_wins;
                 summary.ties += ties;
@@ -336,9 +381,12 @@ fn show_summary_results(eval: EvalType, summary: SummaryResults) {
             println!("{:?}", summary.scores);
         },
         EvalType::Battle { left, right } => {
-            println!("{:?}: {} wins, ties: {}, {:?}: {} wins", left,
-                     summary.left_wins, summary.ties, right, summary.right_wins);
-            // TODO: Compute statistical significance
+            let significance = qualify_significance(
+                summary.left_wins, summary.ties, summary.right_wins, left,
+                right);
+            println!("{:?}: {} wins, ties: {}, {:?}: {} wins -- {}", left,
+                     summary.left_wins, summary.ties, right, summary.right_wins,
+                     significance);
         },
     }
 }

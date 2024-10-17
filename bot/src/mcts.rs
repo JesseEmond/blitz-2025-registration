@@ -256,6 +256,11 @@ impl<Spec: MCTS> SearchComponent<Spec> for Step<'_, Spec> {
         while !params.state_is_done(&state, decided.len()) && !params.search_is_done() {
             best_outcome.update_best(
                 self.invoker.invoke(params, &state, decided.clone()));
+            if best_outcome.actions.is_empty() {
+                // Subsearch exited without a solution (e.g. over search budget)
+                assert!(params.search_is_done());
+                break;
+            }
             assert!(best_outcome.actions.len() > decided.len(),
                     "Would lookup idx {} in best outcome of size {}",
                     decided.len(), best_outcome.actions.len());
