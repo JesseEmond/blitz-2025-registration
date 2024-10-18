@@ -182,14 +182,18 @@ fn evaluate_map(plan: EvalPlan, seed: u64) -> EvalResults {
     let mut tick_times = Vec::new();
     let mut num_evals = Vec::new();
     let mut best_outcome_seen = vec![Score::MIN; bots.len()];
-    while bots.iter().all(|bot| !bot.algorithm.state.game_over) {
+    let mut is_win = vec![false; bots.len()];
+    while bots.iter().all(|bot| !bot.algorithm.state.game_over) &&
+        is_win.iter().all(|w| !w) {
         for (i, bot) in bots.iter_mut().enumerate() {
             if plan.show_progress.is_some_and(|n| bot.algorithm.state.tick % n == 0) {
                 println!("[{:?}][{}] tick {}", bot.name, plan.map.name,
                          bot.algorithm.state.tick);
             }
             let time = Instant::now();
-            let stats = bot.self_play_tick();
+            let results = bot.self_play_tick();
+            is_win[i] = results.is_win;
+            let stats = results.stats;
             if plan.show_new_best_outcome && stats.highest_score_seen > best_outcome_seen[i] {
                 best_outcome_seen[i] = stats.highest_score_seen;
                 println!("[{:?}][{}] new best: {}", bot.name, plan.map.name,
@@ -207,10 +211,20 @@ fn evaluate_map(plan: EvalPlan, seed: u64) -> EvalResults {
         EvalType::Battle { .. } => {
             assert_eq!(bots.len(), 2);
             let [ref left, ref right] = bots[..] else { panic!("battle requires 2 bots") };
-            let winner = match left.algorithm.state.tick.cmp(&right.algorithm.state.tick) {
-                std::cmp::Ordering::Less => Winner::Right,
-                std::cmp::Ordering::Equal => Winner::Tie,
-                std::cmp::Ordering::Greater => Winner::Left,
+            let [left_win, right_win] = is_win[..] else { panic!("battle requires 2 bots") };
+            let winner = if left_win || right_win {
+                match (left_win, right_win) {
+                    (false, true) => Winner::Right,
+                    (true, false) => Winner::Left,
+                    (true, true) => Winner::Tie,
+                    _ => unreachable!(),
+                }
+            } else {
+                match left.algorithm.state.tick.cmp(&right.algorithm.state.tick) {
+                    std::cmp::Ordering::Less => Winner::Right,
+                    std::cmp::Ordering::Equal => Winner::Tie,
+                    std::cmp::Ordering::Greater => Winner::Left,
+                }
             };
             EvalResults::new_battle_results(info, winner)
         },

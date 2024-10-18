@@ -151,12 +151,12 @@ impl Bot<'_> {
     }
 
     /// Pick our next move and apply it locally, silently.
-    pub fn self_play_tick(&mut self) -> mcts::Stats {
+    pub fn self_play_tick(&mut self) -> mcts::Results<MCTS> {
         let results = self.algorithm.search();
         assert!(self.algorithm.state.game_over || results.next_action.is_some(),
                 "next action: {:?}, game over: {}", results.next_action,
                 self.algorithm.state.game_over);
-        results.stats
+        results
     }
 
     /// Update state based on 'game', then apply given move.

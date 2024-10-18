@@ -120,12 +120,18 @@ impl<'a, Spec: MCTS> Algorithm<'a, Spec> {
             self.component.commit(*next_action_idx.unwrap());
             self.state.apply_action(action.clone());
         }
-        Results { stats: self.params.stats.clone(), score, next_action }
+        Results {
+            stats: self.params.stats.clone(),
+            score,
+            next_action,
+            is_win: outcome.win
+        }
     }
 }
 pub struct Results<Spec: MCTS> {
     pub stats: Stats,
     pub score: Score,
+    pub is_win: bool,
     pub next_action: Option<Spec::Action>,
 }
 #[derive(Clone)]
