@@ -127,7 +127,7 @@ pub struct Bot<'a> {
 
 impl Bot<'_> {
     pub fn new_best(state: State, seed: u64) -> Self {
-        Self::new(state, seed, BotName::Sampling)
+        Self::new(state, seed, BotName::Uct100RolloutsSqrt2CGreedyNotDead)
     }
 
     pub fn new(state: State, seed: u64, name: BotName) -> Self {
