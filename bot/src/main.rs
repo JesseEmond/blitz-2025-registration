@@ -165,26 +165,28 @@ fn evaluate_map(plan: EvalPlan, seed: u64) -> EvalResults {
     println!("Evaluating map {}...", plan.map.name);
     let state = State::new(plan.map.game);
     let mut bots = vec![];
-    match &plan.eval {
+    let is_battle = match &plan.eval {
         EvalType::Solo { name } => {
             bots.push(if let Some(name) = name {
                 Bot::new(state, seed, name.clone())
             } else {
                 Bot::new_best(state, seed)
             });
+            false
         },
         EvalType::Battle { left, right } => {
             bots.push(Bot::new(state.clone(), seed, left.clone()));
             bots.push(Bot::new(state, seed, right.clone()));
+            true
         }
-    }
+    };
     assert!(bots.len() <= 2, "only support 1 or 2 bots, early exits on first fail");
     let mut tick_times = Vec::new();
     let mut num_evals = Vec::new();
     let mut best_outcome_seen = vec![Score::MIN; bots.len()];
     let mut is_win = vec![false; bots.len()];
     while bots.iter().all(|bot| !bot.algorithm.state.game_over) &&
-        is_win.iter().all(|w| !w) {
+        (!is_battle || is_win.iter().all(|w| !w)) {
         for (i, bot) in bots.iter_mut().enumerate() {
             if plan.show_progress.is_some_and(|n| bot.algorithm.state.tick % n == 0) {
                 println!("[{:?}][{}] tick {}", bot.name, plan.map.name,
@@ -192,6 +194,7 @@ fn evaluate_map(plan: EvalPlan, seed: u64) -> EvalResults {
             }
             let time = Instant::now();
             let results = bot.self_play_tick();
+
             is_win[i] = results.is_win;
             let stats = results.stats;
             if plan.show_new_best_outcome && stats.highest_score_seen > best_outcome_seen[i] {
