@@ -76,8 +76,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 mcts::EvalCallsBudget { max_evals: 1000 },
                 search::ThreatsAreFarEval {},
                 /*seed=*/42);
-            let algorithm = mcts::sampling_algorithm(black_box(params));
-            algorithm.search(&black_box(state.clone()))
+            let mut algorithm = mcts::sampling_algorithm(black_box(params), black_box(state.clone()));
+            algorithm.search()
         });
     });
     c.bench_function("uct_algorithm 22x15 100 iter 1000 evals", |b| {
@@ -101,8 +101,9 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 mcts::EvalCallsBudget { max_evals: 1000 },
                 search::ThreatsAreFarEval {},
                 /*seed=*/42);
-            let algorithm = mcts::uct_algorithm(black_box(params), black_box(1.0), black_box(100));
-            algorithm.search(&black_box(state.clone()))
+            let mut algorithm = mcts::uct_algorithm(black_box(params), black_box(1.0),
+                                                black_box(100), black_box(state.clone()));
+            algorithm.search()
         });
     });
 }
