@@ -301,7 +301,7 @@ impl State {
 
     /// Simulate one tick from the server-side, applying a player action.
     pub fn simulate_tick(&mut self, action: SimulationAction) {
-        self.check_game_over();  // Note: server also only checks at the start.
+        self.game_over = self.check_game_over();  // Note: server also only checks at the start.
         if self.game_over { return; }
         assert!(self.grid.grid.is_empty(&self.pos));
         match action {
@@ -341,9 +341,11 @@ impl State {
         });
     }
 
-    fn check_game_over(&mut self) {
-        self.game_over |= self.threats.iter().any(|t| t.pos == self.pos);
-        self.game_over |= self.tick > GAME_END_TICKS;
+    pub fn check_game_over(&self) -> bool {
+        let mut game_over = self.game_over;
+        game_over |= self.threats.iter().any(|t| t.pos == self.pos);
+        game_over |= self.tick > GAME_END_TICKS;
+        game_over
     }
     
     pub fn score(&self) -> usize {

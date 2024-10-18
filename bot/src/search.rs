@@ -82,7 +82,10 @@ impl<Spec: mcts::MCTS<State = State>> mcts::Evaluator<Spec> for TicksSurvivedEva
 pub struct NotDeadEval;
 impl<Spec: mcts::MCTS<State = State>> mcts::Evaluator<Spec> for NotDeadEval {
     fn evaluate(&self, state: &Spec::State) -> mcts::Score {
-        if state.game_over { 0.0 } else { 1.0 }
+        // Because the game checks for game over on the start of the next tick,
+        // we peek at whether the next tick will determine this state to be game
+        // over.
+        if state.check_game_over() { 0.0 } else { 1.0 }
     }
 }
 
@@ -131,7 +134,7 @@ impl Bot<'_> {
 
     fn make_search_params(seed: u64) -> mcts::SearchParams<MCTS> {
         mcts::SearchParams::<MCTS>::new(
-            mcts::TimeBudget { max_time: std::time::Duration::from_millis(5) },
+            mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
             TicksSurvivedEval {}, seed)
     }
 

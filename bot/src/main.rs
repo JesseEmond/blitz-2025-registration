@@ -9,6 +9,7 @@ use statrs::distribution::{Binomial, Discrete};
 
 use devnull_bot::map_loader;
 use devnull_bot::map_loader::{list_map_names, load_map, Map};
+use devnull_bot::mcts::Score;
 use devnull_bot::search::{Bot, BotName};
 use devnull_bot::simulation::{State};
 
@@ -21,6 +22,8 @@ struct Cli {
     parallelism: Option<usize>,
     #[arg(long, help = "Print the tick number very N ticks, configured by this argument.")]
     show_progress: Option<usize>,
+    #[arg(long, help = "Print when a new best outcome score is found.")]
+    show_new_best_outcome: bool,
     #[arg(long, help = "How many times to re-run each map, to average scores.")]
     samples: Option<usize>,
     #[arg(long, help = "Force this seed for all evaluations. If unset, pick based on run index.")]
@@ -84,6 +87,7 @@ enum Winner {
 struct EvalPlan {
     map: Map,
     show_progress: Option<usize>,
+    show_new_best_outcome: bool,
     eval: EvalType,
 }
 
@@ -177,14 +181,20 @@ fn evaluate_map(plan: EvalPlan, seed: u64) -> EvalResults {
     assert!(bots.len() <= 2, "only support 1 or 2 bots, early exits on first fail");
     let mut tick_times = Vec::new();
     let mut num_evals = Vec::new();
+    let mut best_outcome_seen = vec![Score::MIN; bots.len()];
     while bots.iter().all(|bot| !bot.algorithm.state.game_over) {
-        for bot in &mut bots {
+        for (i, bot) in bots.iter_mut().enumerate() {
             if plan.show_progress.is_some_and(|n| bot.algorithm.state.tick % n == 0) {
                 println!("[{:?}][{}] tick {}", bot.name, plan.map.name,
                          bot.algorithm.state.tick);
             }
             let time = Instant::now();
             let stats = bot.self_play_tick();
+            if plan.show_new_best_outcome && stats.highest_score_seen > best_outcome_seen[i] {
+                best_outcome_seen[i] = stats.highest_score_seen;
+                println!("[{:?}][{}] new best: {}", bot.name, plan.map.name,
+                         best_outcome_seen[i]);
+            }
             tick_times.push(time.elapsed());
             num_evals.push(stats.num_evals);
         }
@@ -211,7 +221,8 @@ fn evaluate_map(plan: EvalPlan, seed: u64) -> EvalResults {
 
 /// Plan what evals to run (how many repeats, what bots, etc.).
 fn plan_evals(eval_type: EvalType, num_samples: usize, loaded_maps: &Vec<Map>,
-              show_progress_every_n: Option<usize>) -> Vec<EvalPlan> {
+              show_progress_every_n: Option<usize>,
+              show_new_best_outcome: bool) -> Vec<EvalPlan> {
     loaded_maps.into_iter()
         .flat_map(|map| std::iter::repeat(map).take(num_samples))
         .map(|map| {
@@ -219,6 +230,7 @@ fn plan_evals(eval_type: EvalType, num_samples: usize, loaded_maps: &Vec<Map>,
                 eval: eval_type.clone(),
                 map: map.clone(),
                 show_progress: show_progress_every_n,
+                show_new_best_outcome,
             }
         }).collect()
 }
@@ -227,7 +239,7 @@ fn plan_evals(eval_type: EvalType, num_samples: usize, loaded_maps: &Vec<Map>,
 fn run_evals(eval_plans: Vec<EvalPlan>, parallelism: usize,
              fixed_seed: Option<u64>) -> Vec<EvalResults> {
     let chunk_size = (eval_plans.len() as f32 / parallelism as f32).ceil() as usize;
-    let chunks = eval_plans.chunks(parallelism);
+    let chunks = eval_plans.chunks(chunk_size);
     thread::scope(|s| {
         let mut handles = Vec::new();
         for (chunk_idx, chunk_evals) in chunks.enumerate() {
@@ -407,6 +419,7 @@ fn main() {
     }
     let fixed_seed = cli.seed;
     let show_progress = cli.show_progress;
+    let show_new_best_outcome = cli.show_new_best_outcome;
     let eval_type = if let Some(battle) = cli.bot_selection.battle {
         EvalType::Battle {
             left: battle.left.expect("missing left"),
@@ -417,7 +430,8 @@ fn main() {
     };
 
     let maps = load_eval_maps(cli.map_selection).expect("Error loading map");
-    let evals = plan_evals(eval_type.clone(), repeats, &maps, show_progress);
+    let evals = plan_evals(eval_type.clone(), repeats, &maps, show_progress,
+                           show_new_best_outcome);
     let results = run_evals(evals, parallelism, fixed_seed);
     show_results(eval_type, results);
 }
