@@ -110,10 +110,11 @@ impl<'a, Spec: MCTS> Algorithm<'a, Spec> {
         if outcome.is_empty() {
             score = self.params.evaluate(&self.state);
         }
-        let next_action = outcome.actions.iter().next()
+        let next_action_idx = outcome.actions.iter().next();
+        let next_action = next_action_idx
             .map(|&idx| self.state.generate_actions()[idx].clone());
         if let Some(ref action) = next_action {
-            self.component.commit(&action);
+            self.component.commit(*next_action_idx.unwrap());
             self.state.apply_action(action.clone());
         }
         Results { stats: self.params.stats.clone(), score, next_action }
@@ -179,9 +180,11 @@ pub trait SearchComponent<Spec: MCTS> {
                decided: Vec<usize>) -> Outcome;
     /// Must be called every time 'decided' is changed.
     fn reset_prefix(&mut self, decided: &Vec<usize>);
-    /// Apply the next best action, propagate to subcomponents.
+    /// Apply the next best action index, propagate to subcomponents.
     /// Opportunity to forget internal state related to other actions.
-    fn commit(&mut self, action: &Spec::Action);
+    /// We pass the action index picked to double-check that it is the expected
+    /// one. 
+    fn commit(&mut self, action_idx: usize);
 }
 
 /// Follow a simulation policy until a terminal state or max configured rollout
@@ -214,9 +217,8 @@ impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
     }
     fn reset_prefix(&mut self, _decided: &Vec<usize>) {
     }
-    fn commit(&mut self, _action: &Spec::Action) {
-        // TODO: Remember the best state! Just advance it.
-        self.yielder.best = Outcome::new();
+    fn commit(&mut self, action_idx: usize) {
+        self.yielder.advance(action_idx);
     }
 }
 
@@ -246,8 +248,8 @@ impl<Spec: MCTS> SearchComponent<Spec> for Repeat<'_, Spec> {
     fn reset_prefix(&mut self, decided: &Vec<usize>) {
         self.invoker.reset_prefix(decided);
     }
-    fn commit(&mut self, action: &Spec::Action) {
-        self.invoker.commit(action);
+    fn commit(&mut self, action_idx: usize) {
+        self.invoker.commit(action_idx);
     }
 }
 
@@ -288,8 +290,8 @@ impl<Spec: MCTS> SearchComponent<Spec> for Step<'_, Spec> {
     fn reset_prefix(&mut self, decided: &Vec<usize>) {
         self.invoker.reset_prefix(decided);
     }
-    fn commit(&mut self, action: &Spec::Action) {
-        self.invoker.commit(action);
+    fn commit(&mut self, action_idx: usize) {
+        self.invoker.commit(action_idx);
     }
 }
 
@@ -323,8 +325,8 @@ impl<Spec: MCTS> SearchComponent<Spec> for LookAhead<'_, Spec> {
     fn reset_prefix(&mut self, decided: &Vec<usize>) {
         self.invoker.reset_prefix(decided);
     }
-    fn commit(&mut self, action: &Spec::Action) {
-        self.invoker.commit(action);
+    fn commit(&mut self, action_idx: usize) {
+        self.invoker.commit(action_idx);
     }
 }
 
@@ -415,8 +417,8 @@ impl<Spec: MCTS> SearchComponent<Spec> for Select<'_, Spec> {
         self.start_node = self.find_node(decided);
         self.invoker.reset_prefix(decided);
     }
-    fn commit(&mut self, action: &Spec::Action) {
-        self.invoker.commit(action);
+    fn commit(&mut self, action_idx: usize) {
+        self.invoker.commit(action_idx);
         // TODO: keep subtree of chosen action?
         self.tree = Tree::new();
         self.start_node = self.tree.root;
@@ -499,6 +501,13 @@ impl Yielder {
         self.best.update_best(Outcome { score, actions });
         &self.best
     }
+    /// Advance the best sequence, ensuring the first action is indeed
+    /// 'action_idx'.
+    fn advance(&mut self, action_idx: usize) {
+        assert!(!self.best.actions.is_empty());
+        assert_eq!(self.best.actions[0], action_idx);
+        self.best.actions.remove(0);
+    }
 }
 
 /// INVOKE (fig 2. in arXiv:1208.4692), helper to call a sub-search component.
@@ -522,8 +531,8 @@ impl<'a, Spec: MCTS> Invoker<'a, Spec> {
     fn reset_prefix(&mut self, decided: &Vec<usize>) {
         self.subcomponent.reset_prefix(decided);
     }
-    fn commit(&mut self, action: &Spec::Action) {
-        self.subcomponent.commit(action);
+    fn commit(&mut self, action_idx: usize) {
+        self.subcomponent.commit(action_idx);
     }
 }
 
