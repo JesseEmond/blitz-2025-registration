@@ -14,8 +14,8 @@ impl mcts::MCTS for MCTS {
     type Action = search::Action;
     type State = simulation::State;
     type Evaluator = search::ThreatsAreFarEval;
+    type Heuristic = search::ThreatsAreFarEval;
     type Budget = mcts::EvalCallsBudget;
-    type RolloutPolicy = mcts::RandomPolicy;
 }
 
 pub fn criterion_benchmark(c: &mut Criterion) {

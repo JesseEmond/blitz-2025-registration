@@ -15,15 +15,23 @@ pub enum BotName {
     /// MCTS algorithm using 100 rollouts per step, with UCB-1 for node
     /// selection with c=sqrt(2).
     Uct100RolloutsSqrt2C,
+    /// MCTS algorithm using 100 rollouts per step, with UCB-1 for node
+    /// selection with c=sqrt(2). Rollouts are greedy with a 'do not die'
+    /// heuristic.
+    Uct100RolloutsSqrt2CGreedyNotDead,
 }
 
 impl BotName {
     fn make_algorithm<'a>(
         self, state: State, params: mcts::SearchParams<MCTS>) -> mcts::Algorithm<'a, MCTS> {
+        let seed = params.seed;
         match self {
             BotName::Sampling => mcts::sampling_algorithm(params, state),
             BotName::IterativeSampling100 => mcts::iterative_sampling_algorithm(params, 100, state),
             BotName::Uct100RolloutsSqrt2C => mcts::uct_algorithm(params, 2_f32.sqrt(), 100, state),
+            BotName::Uct100RolloutsSqrt2CGreedyNotDead => mcts::uct_algorithm_rollout(
+                params, 2_f32.sqrt(), 100, state,
+                Box::new(mcts::GreedyPolicy::new(seed, NotDeadEval {}))),
         }
     }
 }
@@ -71,6 +79,13 @@ impl<Spec: mcts::MCTS<State = State>> mcts::Evaluator<Spec> for TicksSurvivedEva
     }
 }
 
+pub struct NotDeadEval;
+impl<Spec: mcts::MCTS<State = State>> mcts::Evaluator<Spec> for NotDeadEval {
+    fn evaluate(&self, state: &Spec::State) -> mcts::Score {
+        if state.game_over { 0.0 } else { 1.0 }
+    }
+}
+
 impl<Spec: mcts::MCTS<State = State, Action = Action, ActionSpace = ActionSpace>>
 mcts::SearchState<Spec> for State {
     fn generate_actions(&self) -> Spec::ActionSpace {
@@ -95,8 +110,8 @@ impl mcts::MCTS for MCTS {
     type State = State;
     type ActionSpace = ActionSpace;
     type Evaluator = TicksSurvivedEval;
+    type Heuristic = NotDeadEval;
     type Budget = mcts::TimeBudget;
-    type RolloutPolicy = mcts::RandomPolicy;
 }
 
 pub struct Bot<'a> {

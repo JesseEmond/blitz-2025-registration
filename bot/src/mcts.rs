@@ -9,18 +9,19 @@
 ///     type State = MyState;
 ///     type Evaluator = MyEvaluator;
 ///     type Budget = mcts::TimeBudget;
-///     type RolloutPolicy = mcts::RandomPolicy;
+///     type Heuristic = MyEvaluator;
+///     type ActionSpace = Vec<MyAction>;
 ///   }
 ///   // ...
 ///   let params = mcts::SearchParams::<MyMCTS>::new(
 ///     mcts::TimeBudget { max_time: std::time::Duration::from_millis(75) },
 ///     MyEvaluator{});
-///   let algorithm = mcts::sampling_algorithm(params);
-///   let next_move = algorithm.search(&my_state).next_action();
+///   let algorithm = mcts::sampling_algorithm(params, my_state);
+///   let next_move = algorithm.search().next_action;
 // TODO: split to its own module, put interfaces vs. implementations in diff files
 
 use rand::SeedableRng;
-use rand::seq::IteratorRandom;
+use rand::seq::{IteratorRandom, SliceRandom};
 use rand_chacha::ChaCha8Rng;
 use std::time::{Duration, Instant};
 
@@ -43,8 +44,8 @@ pub trait MCTS: Sized {
     // Search related
     /// Evaluator of a state's goodness.
     type Evaluator: Evaluator<Self>;
-    /// Policy to use while picking moves during playout simulation.
-    type RolloutPolicy: SimulationPolicy<Self> + Send + Sync;
+    /// Evaluator for rollout policies requiring a heuristic.
+    type Heuristic: Evaluator<Self>;
     /// Budget constraining the search.
     type Budget: SearchBudget;
 }
@@ -189,16 +190,16 @@ pub trait SearchComponent<Spec: MCTS> {
 
 /// Follow a simulation policy until a terminal state or max configured rollout
 /// length, yield the best sequence seen so far.
-pub struct Simulate<Spec: MCTS> {
-    policy: Spec::RolloutPolicy,
+pub struct Simulate<'a, Spec: MCTS> {
+    policy: Box<dyn SimulationPolicy<Spec> + 'a + Send + Sync>,
     yielder: Yielder,
 }
-impl<Spec: MCTS> Simulate<Spec> {
-    pub fn new(policy: Spec::RolloutPolicy) -> Self {
+impl<'a, Spec: MCTS> Simulate<'a, Spec> {
+    pub fn new(policy: Box<dyn SimulationPolicy<Spec> + 'a + Send + Sync>) -> Self {
         Self { policy, yielder: Yielder::new() }
     }
 }
-impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
+impl<'a, Spec: MCTS> SearchComponent<Spec> for Simulate<'a, Spec> {
     fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
                decided: Vec<usize>) -> Outcome {
         if params.search_is_done() || params.state_is_done(&state, decided.len()) {
@@ -432,7 +433,7 @@ pub struct SearchParams<Spec: MCTS> {
     budget: Spec::Budget,
     evaluator: Spec::Evaluator,
     stats: Stats,
-    seed: u64,
+    pub seed: u64,
     // If set, a rollout that lasts this many steps will be considered terminal
     max_rollout_length: Option<usize>,
     // Historical lowest/highest scores seen, used to scale rewards.
@@ -617,7 +618,6 @@ impl SearchBudget for TimeBudget {
 pub struct RandomPolicy {
     pub rng: ChaCha8Rng,
 }
-
 impl<Spec: MCTS> SimulationPolicy<Spec> for RandomPolicy {
     fn pick_action(&mut self, _state: &Spec::State,
                    actions: &Spec::ActionSpace) -> usize {
@@ -625,7 +625,44 @@ impl<Spec: MCTS> SimulationPolicy<Spec> for RandomPolicy {
     }
 }
 
-// TODO: greedy policy, using evaluator
+/// Rollout policy that picks the next action that maximizes a heuristic.
+/// For equivalent scores, pick randomly.
+pub struct GreedyPolicy<Spec: MCTS> {
+    pub rng: ChaCha8Rng,
+    pub heuristic: Spec::Heuristic,
+}
+impl<Spec: MCTS> SimulationPolicy<Spec> for GreedyPolicy<Spec> {
+    fn pick_action(&mut self, state: &Spec::State,
+                   actions: &Spec::ActionSpace) -> usize {
+        // TODO: This should be configurable.
+        const EPSILON: Score = 1e-7;
+        assert!(!actions.is_empty());
+        let mut scores = Vec::new();
+        for action in actions.iter() {
+            let mut state = state.clone();
+            state.apply_action(action.clone());
+            scores.push(self.heuristic.evaluate(&state));
+        }
+        let mut max_score = Score::MIN;
+        let mut option_indices = Vec::new();
+        for (i, score) in scores.into_iter().enumerate() {
+            if (score - max_score).abs() <= EPSILON {  // like max
+                option_indices.push(i);
+            } else if score + Score::EPSILON > max_score {  // new max
+                option_indices.clear();
+                option_indices.push(i);
+                max_score = score;
+            }
+        }
+        assert!(!option_indices.is_empty());
+        *option_indices.choose(&mut self.rng).unwrap()
+    }
+}
+impl<Spec: MCTS> GreedyPolicy<Spec> {
+    pub fn new(seed: u64, heuristic: Spec::Heuristic) -> Self {
+        Self { rng: ChaCha8Rng::seed_from_u64(seed), heuristic }
+    }
+}
 
 // Selector implementations
 
@@ -661,21 +698,22 @@ impl<Spec: MCTS> Selector<Spec> for Ucb1Selector {
 // Algorithm implementations
 
 /// Sampling algorithm that simulates a random rollout policy over and over.
-pub fn sampling_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
+pub fn sampling_algorithm<'a, Spec: MCTS + 'a>(
     params: SearchParams<Spec>, state: Spec::State) -> Algorithm<'a, Spec> {
     // From https://arxiv.org/pdf/1208.4692 (7)
-    let simulate = Box::new(
-        Simulate::new(RandomPolicy { rng: ChaCha8Rng::seed_from_u64(params.seed) }));
+    let rollout = Box::new(RandomPolicy { rng: ChaCha8Rng::seed_from_u64(params.seed) });
+    let simulate = Box::new(Simulate::new(rollout));
     Algorithm::new(simulate, params, state)
 }
 
 /// Sampling algorithm that simulates a random rollout policy N times, picks the
 /// move that gave the best-score-so-far, then simulates from the next state.
-pub fn iterative_sampling_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
+pub fn iterative_sampling_algorithm<'a, Spec: MCTS + 'a>(
     params: SearchParams<Spec>, iterations_per_step: usize,
     state: Spec::State) -> Algorithm<'a, Spec> {
     // From https://arxiv.org/pdf/1208.4692 (8)
-    let simulate = Box::new(Simulate::new(RandomPolicy { rng: ChaCha8Rng::seed_from_u64(params.seed) }));
+    let rollout = Box::new(RandomPolicy { rng: ChaCha8Rng::seed_from_u64(params.seed) });
+    let simulate = Box::new(Simulate::new(rollout));
     let repeat = Box::new(Repeat::new(iterations_per_step, simulate));
     let step = Box::new(Step::new(repeat));
     Algorithm::new(step, params, state)
@@ -685,8 +723,8 @@ pub fn iterative_sampling_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy>
 /// inform what node to select next.
 pub fn mcts_algorithm<'a, Spec: MCTS + 'a>(
     params: SearchParams<Spec>, selector: Box<dyn Selector<Spec>>,
-    rollout: Spec::RolloutPolicy, step_iterations: usize,
-    state: Spec::State) -> Algorithm<'a, Spec> {
+    rollout: Box<dyn SimulationPolicy<Spec> + 'a + Send + Sync>,
+    step_iterations: usize, state: Spec::State) -> Algorithm<'a, Spec> {
     // From https://arxiv.org/pdf/1208.4692 (12)
     let simulate = Box::new(Simulate::new(rollout));
     let select = Box::new(Select::new(selector, simulate));
@@ -695,13 +733,20 @@ pub fn mcts_algorithm<'a, Spec: MCTS + 'a>(
     Algorithm::new(step, params, state)
 }
 
-/// MCTS using the UCB-1 selection policy.
-pub fn uct_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
+/// MCTS using the UCB-1 selection policy, with random rollout.
+pub fn uct_algorithm<'a, Spec: MCTS + 'a>(
     params: SearchParams<Spec>, exploration: f32,
     step_iterations: usize, state: Spec::State) -> Algorithm<'a, Spec> {
-    let selector = Box::new(Ucb1Selector { exploration });
     let seed = params.seed;
-    mcts_algorithm(params, selector,
-                   RandomPolicy { rng: ChaCha8Rng::seed_from_u64(seed) },
-                   step_iterations, state)
+    let rollout = Box::new(RandomPolicy { rng: ChaCha8Rng::seed_from_u64(seed) });
+    uct_algorithm_rollout(params, exploration, step_iterations, state, rollout)
+}
+
+/// MCTS using the UCB-1 selection policy, with custom rollout.
+pub fn uct_algorithm_rollout<'a, Spec: MCTS + 'a>(
+    params: SearchParams<Spec>, exploration: f32,
+    step_iterations: usize, state: Spec::State,
+    rollout: Box<dyn SimulationPolicy<Spec> + 'a + Send + Sync>) -> Algorithm<'a, Spec> {
+    let selector = Box::new(Ucb1Selector { exploration });
+    mcts_algorithm(params, selector, rollout, step_iterations, state)
 }
