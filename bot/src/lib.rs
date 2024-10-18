@@ -175,7 +175,7 @@ impl GameState {
 
 #[pyclass]
 pub struct DevnullBot {
-    bot: Bot,
+    bot: Bot<'static>,
 }
 #[pymethods]
 impl DevnullBot {

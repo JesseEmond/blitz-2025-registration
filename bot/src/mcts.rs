@@ -33,7 +33,7 @@ use ordered_float::OrderedFloat;
 pub trait MCTS: Sized {
     // Game related
     /// Possible action that can be done at a particular state.
-    type Action: Clone + PartialEq;
+    type Action: Clone + PartialEq + Send + Sync;
     /// State of the game.
     type State: Clone + SearchState<Self>;
     /// Possible actions at a given state.
@@ -44,7 +44,7 @@ pub trait MCTS: Sized {
     /// Evaluator of a state's goodness.
     type Evaluator: Evaluator<Self>;
     /// Policy to use while picking moves during playout simulation.
-    type RolloutPolicy: SimulationPolicy<Self>;
+    type RolloutPolicy: SimulationPolicy<Self> + Send + Sync;
     /// Budget constraining the search.
     type Budget: SearchBudget;
 }
@@ -85,43 +85,46 @@ pub trait SearchBudget {
 
 // Algorithm that drives the search. Made up of composable components.
 pub struct Algorithm<'a, Spec: MCTS> {
-    component: Box<dyn SearchComponent<Spec> + 'a>,
+    pub state: Spec::State,
+    component: Box<dyn SearchComponent<Spec> + 'a + Send + Sync>,
     params: SearchParams<Spec>,
 }
 impl<'a, Spec: MCTS> Algorithm<'a, Spec> {
-    pub fn new(component: Box<dyn SearchComponent<Spec> + 'a>,
-               params: SearchParams<Spec>) -> Self {
-        Self { component, params }
+    pub fn new(component: Box<dyn SearchComponent<Spec> + 'a + Send + Sync>,
+               params: SearchParams<Spec>, state: Spec::State) -> Self {
+        Self { component, params, state }
     }
 
-    /// Search from a given state. Only called once.
-    pub fn search(mut self, state: &Spec::State) -> Results {
+    /// Search from a given state, apply the best move found.
+    pub fn search(&mut self) -> Results<Spec> {
         let mut outcome = Outcome::new();
-        while !self.params.search_is_done() && !state.is_terminal() {
+        self.params.stats = Stats::new();
+        while !self.params.search_is_done() && !self.state.is_terminal() {
             let decided = Vec::new();
-            self.component.reset(&decided);
+            self.component.reset_prefix(&decided);
             outcome.update_best(
-                self.component.execute(&mut self.params, &state, decided));
+                self.component.execute(&mut self.params, &self.state, decided));
         }
         let mut score = outcome.score;
         // Evaluate current state's score if we did not have time to search.
         if outcome.is_empty() {
-            score = self.params.evaluate(state);
+            score = self.params.evaluate(&self.state);
         }
-        Results { stats: self.params.stats, action_indices: outcome.actions, score }
+        let next_action = outcome.actions.iter().next()
+            .map(|&idx| self.state.generate_actions()[idx].clone());
+        if let Some(ref action) = next_action {
+            self.component.commit(&action);
+            self.state.apply_action(action.clone());
+        }
+        Results { stats: self.params.stats.clone(), score, next_action }
     }
 }
-pub struct Results {
+pub struct Results<Spec: MCTS> {
     pub stats: Stats,
     pub score: Score,
-    action_indices: Vec<usize>,
+    pub next_action: Option<Spec::Action>,
 }
-impl Results {
-    pub fn next_action<Spec: MCTS>(&self, state: &Spec::State) -> Option<Spec::Action> {
-        self.action_indices.iter().next()
-            .map(|&idx| state.generate_actions()[idx].clone())
-    }
-}
+#[derive(Clone)]
 pub struct Stats {
     pub num_evals: usize,
     pub highest_score_seen: Score,
@@ -175,7 +178,10 @@ pub trait SearchComponent<Spec: MCTS> {
     fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
                decided: Vec<usize>) -> Outcome;
     /// Must be called every time 'decided' is changed.
-    fn reset(&mut self, decided: &Vec<usize>);
+    fn reset_prefix(&mut self, decided: &Vec<usize>);
+    /// Apply the next best action, propagate to subcomponents.
+    /// Opportunity to forget internal state related to other actions.
+    fn commit(&mut self, action: &Spec::Action);
 }
 
 /// Follow a simulation policy until a terminal state or max configured rollout
@@ -202,11 +208,15 @@ impl<Spec: MCTS> SearchComponent<Spec> for Simulate<Spec> {
             let action_idx = self.policy.pick_action(&state, &state_actions);
             decided.push(action_idx);
             state.apply_action(state_actions[action_idx].clone());
-            self.reset(&decided);
+            self.reset_prefix(&decided);
         }
         self.yielder.yield_best(params, &state, decided).clone()
     }
-    fn reset(&mut self, _decided: &Vec<usize>) {
+    fn reset_prefix(&mut self, _decided: &Vec<usize>) {
+    }
+    fn commit(&mut self, _action: &Spec::Action) {
+        // TODO: Remember the best state! Just advance it.
+        self.yielder.best = Outcome::new();
     }
 }
 
@@ -217,7 +227,7 @@ pub struct Repeat<'a, Spec: MCTS> {
     invoker: Invoker<'a, Spec>,
 }
 impl<'a, Spec: MCTS> Repeat<'a, Spec> {
-    pub fn new(times: usize, subcomponent: Box<dyn SearchComponent<Spec> + 'a>) -> Self {
+    pub fn new(times: usize, subcomponent: Box<dyn SearchComponent<Spec> + 'a + Sync + Send>) -> Self {
         assert!(times > 0);
         Self { times, invoker: Invoker::new(subcomponent) }
     }
@@ -233,8 +243,11 @@ impl<Spec: MCTS> SearchComponent<Spec> for Repeat<'_, Spec> {
         }
         best_outcome
     }
-    fn reset(&mut self, decided: &Vec<usize>) {
-        self.invoker.reset(decided);
+    fn reset_prefix(&mut self, decided: &Vec<usize>) {
+        self.invoker.reset_prefix(decided);
+    }
+    fn commit(&mut self, action: &Spec::Action) {
+        self.invoker.commit(action);
     }
 }
 
@@ -243,7 +256,7 @@ pub struct Step<'a, Spec: MCTS> {
     invoker: Invoker<'a, Spec>,
 }
 impl<'a, Spec: MCTS> Step<'a, Spec> {
-    pub fn new(subcomponent: Box<dyn SearchComponent<Spec> + 'a>) -> Self {
+    pub fn new(subcomponent: Box<dyn SearchComponent<Spec> + 'a + Send + Sync>) -> Self {
         Self { invoker: Invoker::new(subcomponent) }
     }
 }
@@ -268,12 +281,15 @@ impl<Spec: MCTS> SearchComponent<Spec> for Step<'_, Spec> {
             decided.push(action_idx);
             let action = state.generate_actions()[action_idx].clone();
             state.apply_action(action);
-            self.reset(&decided)
+            self.reset_prefix(&decided)
         }
         best_outcome
     }
-    fn reset(&mut self, decided: &Vec<usize>) {
-        self.invoker.reset(decided);
+    fn reset_prefix(&mut self, decided: &Vec<usize>) {
+        self.invoker.reset_prefix(decided);
+    }
+    fn commit(&mut self, action: &Spec::Action) {
+        self.invoker.commit(action);
     }
 }
 
@@ -282,7 +298,7 @@ pub struct LookAhead<'a, Spec: MCTS> {
     invoker: Invoker<'a, Spec>,
 }
 impl<'a, Spec: MCTS> LookAhead<'a, Spec> {
-    pub fn new(subcomponent: Box<dyn SearchComponent<Spec> + 'a>) -> Self {
+    pub fn new(subcomponent: Box<dyn SearchComponent<Spec> + 'a + Send + Sync>) -> Self {
         Self { invoker: Invoker::new(subcomponent) }
     }
 }
@@ -298,14 +314,17 @@ impl<Spec: MCTS> SearchComponent<Spec> for LookAhead<'_, Spec> {
             let mut state = state.clone();
             decided.push(action_idx);
             state.apply_action(action);
-            self.reset(&decided);
+            self.reset_prefix(&decided);
             best_outcome.update_best(self.invoker.invoke(params, &state, decided.clone()));
             decided.pop();
         }
         best_outcome
     }
-    fn reset(&mut self, decided: &Vec<usize>) {
-        self.invoker.reset(decided);
+    fn reset_prefix(&mut self, decided: &Vec<usize>) {
+        self.invoker.reset_prefix(decided);
+    }
+    fn commit(&mut self, action: &Spec::Action) {
+        self.invoker.commit(action);
     }
 }
 
@@ -319,7 +338,7 @@ pub struct Select<'a, Spec: MCTS> {
 }
 impl<'a, Spec: MCTS> Select<'a, Spec> {
     pub fn new(selector: Box<dyn Selector<Spec>>,
-               subcomponent: Box<dyn SearchComponent<Spec> + 'a>) -> Self {
+               subcomponent: Box<dyn SearchComponent<Spec> + 'a + Send + Sync>) -> Self {
         let tree = Tree::new();
         let start_node = tree.root;
         Self { selector, invoker: Invoker::new(subcomponent), tree, start_node }
@@ -384,16 +403,23 @@ impl<Spec: MCTS> SearchComponent<Spec> for Select<'_, Spec> {
         let mut decided = decided;
         let mut state = state.clone();
         let node = self.selection(&mut state, &mut decided, params);
-        // Note: deliberately not calling our own reset here, to avoid the cost.
-        self.invoker.reset(&decided);
+        // Note: deliberately not calling our own reset here, to avoid the cost
+        // (not needed, we know our 'start_node' didn't change).
+        self.invoker.reset_prefix(&decided);
         self.expand(node, &state);
         let outcome = self.invoker.invoke(params, &state, decided);
         self.back_propagate(node, outcome.score);
         outcome
     }
-    fn reset(&mut self, decided: &Vec<usize>) {
+    fn reset_prefix(&mut self, decided: &Vec<usize>) {
         self.start_node = self.find_node(decided);
-        self.invoker.reset(decided);
+        self.invoker.reset_prefix(decided);
+    }
+    fn commit(&mut self, action: &Spec::Action) {
+        self.invoker.commit(action);
+        // TODO: keep subtree of chosen action?
+        self.tree = Tree::new();
+        self.start_node = self.tree.root;
     }
 }
 
@@ -479,10 +505,10 @@ impl Yielder {
 /// Unlike the paper, we rely on the sub-search component returning the best
 /// outcome seen so far if the state is terminal.
 struct Invoker<'a, Spec: MCTS> {
-    subcomponent: Box<dyn SearchComponent<Spec> + 'a>,
+    subcomponent: Box<dyn SearchComponent<Spec> + 'a + Send + Sync>,
 }
 impl<'a, Spec: MCTS> Invoker<'a, Spec> {
-    fn new(subcomponent: Box<dyn SearchComponent<Spec> + 'a>) -> Self {
+    fn new(subcomponent: Box<dyn SearchComponent<Spec> + 'a + Send + Sync>) -> Self {
         Self { subcomponent }
     }
     fn invoke(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
@@ -493,13 +519,16 @@ impl<'a, Spec: MCTS> Invoker<'a, Spec> {
         // paper.
         self.subcomponent.execute(params, state, decided)
     }
-    fn reset(&mut self, decided: &Vec<usize>) {
-        self.subcomponent.reset(decided);
+    fn reset_prefix(&mut self, decided: &Vec<usize>) {
+        self.subcomponent.reset_prefix(decided);
+    }
+    fn commit(&mut self, action: &Spec::Action) {
+        self.subcomponent.commit(action);
     }
 }
 
 /// Selects the next child node to explore.
-pub trait Selector<Spec: MCTS> {
+pub trait Selector<Spec: MCTS> : Send + Sync {
     /// Select the child node index to visit from this parent node.
     fn select_node(&self, params: &SearchParams<Spec>, node: &Node<Spec>) -> usize;
 }
@@ -624,46 +653,48 @@ impl<Spec: MCTS> Selector<Spec> for Ucb1Selector {
 
 /// Sampling algorithm that simulates a random rollout policy over and over.
 pub fn sampling_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
-    params: SearchParams<Spec>) -> Algorithm<'a, Spec> {
+    params: SearchParams<Spec>, state: Spec::State) -> Algorithm<'a, Spec> {
     // From https://arxiv.org/pdf/1208.4692 (7)
     let simulate = Box::new(
         Simulate::new(RandomPolicy { rng: ChaCha8Rng::seed_from_u64(params.seed) }));
-    Algorithm::new(simulate, params)
+    Algorithm::new(simulate, params, state)
 }
 
 /// Sampling algorithm that simulates a random rollout policy N times, picks the
 /// move that gave the best-score-so-far, then simulates from the next state.
 pub fn iterative_sampling_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
-    params: SearchParams<Spec>, iterations_per_step: usize) -> Algorithm<'a, Spec> {
+    params: SearchParams<Spec>, iterations_per_step: usize,
+    state: Spec::State) -> Algorithm<'a, Spec> {
     // From https://arxiv.org/pdf/1208.4692 (8)
     let simulate = Box::new(Simulate::new(RandomPolicy { rng: ChaCha8Rng::seed_from_u64(params.seed) }));
     let repeat = Box::new(Repeat::new(iterations_per_step, simulate));
     let step = Box::new(Step::new(repeat));
-    Algorithm::new(step, params)
+    Algorithm::new(step, params, state)
 }
 
 /// Select actions one after the other, using statistics from simulations to
 /// inform what node to select next.
 pub fn mcts_algorithm<'a, Spec: MCTS + 'a>(
     params: SearchParams<Spec>, selector: Box<dyn Selector<Spec>>,
-    rollout: Spec::RolloutPolicy, step_iterations: usize) -> Algorithm<'a, Spec> {
+    rollout: Spec::RolloutPolicy, step_iterations: usize,
+    state: Spec::State) -> Algorithm<'a, Spec> {
     // From https://arxiv.org/pdf/1208.4692 (12)
     let simulate = Box::new(Simulate::new(rollout));
     let select = Box::new(Select::new(selector, simulate));
     let repeat = Box::new(Repeat::new(step_iterations, select));
     let step = Box::new(Step::new(repeat));
-    Algorithm::new(step, params)
+    Algorithm::new(step, params, state)
 }
 
 /// MCTS using the UCB-1 selection policy.
 pub fn uct_algorithm<'a, Spec: MCTS<RolloutPolicy = RandomPolicy> + 'a>(
     params: SearchParams<Spec>, exploration: f32,
-    step_iterations: usize) -> Algorithm<'a, Spec> {
+    step_iterations: usize, state: Spec::State) -> Algorithm<'a, Spec> {
     let selector = Box::new(Ucb1Selector { exploration });
     let seed = params.seed;
     mcts_algorithm(params, selector,
                    RandomPolicy { rng: ChaCha8Rng::seed_from_u64(seed) },
-                   step_iterations)
+                   step_iterations, state)
 }
 
 

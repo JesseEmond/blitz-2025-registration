@@ -177,11 +177,11 @@ fn evaluate_map(plan: EvalPlan, seed: u64) -> EvalResults {
     assert!(bots.len() <= 2, "only support 1 or 2 bots, early exits on first fail");
     let mut tick_times = Vec::new();
     let mut num_evals = Vec::new();
-    while bots.iter().all(|bot| !bot.state.game_over) {
+    while bots.iter().all(|bot| !bot.algorithm.state.game_over) {
         for bot in &mut bots {
-            if plan.show_progress.is_some_and(|n| bot.state.tick % n == 0) {
+            if plan.show_progress.is_some_and(|n| bot.algorithm.state.tick % n == 0) {
                 println!("[{:?}][{}] tick {}", bot.name, plan.map.name,
-                         bot.state.tick);
+                         bot.algorithm.state.tick);
             }
             let time = Instant::now();
             let stats = bot.self_play_tick();
@@ -189,15 +189,15 @@ fn evaluate_map(plan: EvalPlan, seed: u64) -> EvalResults {
             num_evals.push(stats.num_evals);
         }
     }
-    let ticks = bots.iter().map(|bot| bot.state.tick).min().unwrap();
+    let ticks = bots.iter().map(|bot| bot.algorithm.state.tick).min().unwrap();
     let info = EvalInfo { name: plan.map.name, ticks, eval: plan.eval };
     let results = match info.eval {
         EvalType::Solo { .. } => EvalResults::new_solo_results(
-            info, bots[0].state.score(), tick_times, num_evals),
+            info, bots[0].algorithm.state.score(), tick_times, num_evals),
         EvalType::Battle { .. } => {
             assert_eq!(bots.len(), 2);
             let [ref left, ref right] = bots[..] else { panic!("battle requires 2 bots") };
-            let winner = match left.state.tick.cmp(&right.state.tick) {
+            let winner = match left.algorithm.state.tick.cmp(&right.algorithm.state.tick) {
                 std::cmp::Ordering::Less => Winner::Right,
                 std::cmp::Ordering::Equal => Winner::Tie,
                 std::cmp::Ordering::Greater => Winner::Left,
