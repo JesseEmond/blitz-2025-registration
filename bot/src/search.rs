@@ -97,6 +97,9 @@ mcts::SearchState<Spec> for State {
     fn is_terminal(&self) -> bool {
         self.game_over
     }
+    fn is_win(&self) -> bool {
+        self.player_won()
+    }
     fn apply_action(&mut self, action: Action) {
         self.simulate_tick(SimulationAction::Move { direction: action });
     }

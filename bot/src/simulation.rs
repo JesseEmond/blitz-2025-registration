@@ -344,8 +344,12 @@ impl State {
     pub fn check_game_over(&self) -> bool {
         let mut game_over = self.game_over;
         game_over |= self.threats.iter().any(|t| t.pos == self.pos);
-        game_over |= self.tick > GAME_END_TICKS;
+        game_over |= self.player_won();
         game_over
+    }
+
+    pub fn player_won(&self) -> bool {
+        self.tick > GAME_END_TICKS
     }
     
     pub fn score(&self) -> usize {

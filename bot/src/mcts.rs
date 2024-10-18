@@ -59,6 +59,8 @@ pub trait SearchState<Spec: MCTS> {
     fn apply_action(&mut self, action: Spec::Action);
     /// If the state is final and no further actions are possible.
     fn is_terminal(&self) -> bool;
+    /// If this is a winning state where we can stop the search altogether.
+    fn is_win(&self) -> bool;
 }
 
 pub type Score = f32;
@@ -100,7 +102,7 @@ impl<'a, Spec: MCTS> Algorithm<'a, Spec> {
     pub fn search(&mut self) -> Results<Spec> {
         let mut outcome = Outcome::new();
         self.params.stats = Stats::new();
-        while !self.params.search_is_done() && !self.state.is_terminal() {
+        while !self.params.search_is_done() && !self.state.is_terminal() && !outcome.win {
             let decided = Vec::new();
             self.component.reset_prefix(&decided);
             outcome.update_best(
@@ -156,13 +158,15 @@ pub struct Outcome {
     pub actions: Vec<usize>,
     /// Score obtained in the process.
     pub score: Score,
+    /// Outcome where we won -- can stop the search.
+    pub win: bool,
 }
 impl Outcome {
     fn new() -> Self {
-        Self { score: Score::MIN, actions: Vec::new() }
+        Self { score: Score::MIN, actions: Vec::new(), win: false }
     }
     fn update_best(&mut self, mut other: Outcome) {
-        if other.score > self.score {
+        if other.score > self.score || other.win {
             std::mem::swap(self, &mut other);
         }
     }
@@ -202,7 +206,8 @@ impl<'a, Spec: MCTS> Simulate<'a, Spec> {
 impl<'a, Spec: MCTS> SearchComponent<Spec> for Simulate<'a, Spec> {
     fn execute(&mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
                decided: Vec<usize>) -> Outcome {
-        if params.search_is_done() || params.state_is_done(&state, decided.len()) {
+        if params.search_is_done() || params.state_is_done(&state, decided.len())
+            || self.yielder.best.win {
             return self.yielder.best.clone();
         }
         let mut decided = decided;
@@ -240,7 +245,7 @@ impl<Spec: MCTS> SearchComponent<Spec> for Repeat<'_, Spec> {
                decided: Vec<usize>) -> Outcome {
         let mut best_outcome = Outcome::new();
         for _ in 0..self.times {
-            if params.search_is_done() { break; }
+            if params.search_is_done() || best_outcome.win { break; }
             best_outcome.update_best(
                 self.invoker.invoke(params, state, decided.clone()));
         }
@@ -269,7 +274,8 @@ impl<Spec: MCTS> SearchComponent<Spec> for Step<'_, Spec> {
         let mut decided = decided;
         let mut state = state.clone();
         let mut best_outcome = Outcome::new();
-        while !params.state_is_done(&state, decided.len()) && !params.search_is_done() {
+        while !params.state_is_done(&state, decided.len()) && !params.search_is_done()
+            && !best_outcome.win {
             best_outcome.update_best(
                 self.invoker.invoke(params, &state, decided.clone()));
             if best_outcome.actions.is_empty() {
@@ -314,6 +320,7 @@ impl<Spec: MCTS> SearchComponent<Spec> for LookAhead<'_, Spec> {
         let mut decided = decided;
         let mut best_outcome = Outcome::new();
         for (action_idx, action) in state.generate_actions().into_iter().enumerate() {
+            if params.search_is_done() { break; }
             let mut state = state.clone();
             decided.push(action_idx);
             state.apply_action(action);
@@ -473,7 +480,7 @@ impl<Spec: MCTS> SearchParams<Spec> {
         let range = self.highest_score - self.lowest_score;
         (score - self.lowest_score) / range
     }
-    /// If we should stop the search (over budget).
+    /// If we should stop the search (over budget or won).
     pub fn search_is_done(&self) -> bool {
         self.budget.is_over_budget(&self.stats)
     }
@@ -499,7 +506,8 @@ impl Yielder {
         &mut self, params: &mut SearchParams<Spec>, state: &Spec::State,
         actions: Vec<usize>) -> &Outcome {
         let score = params.evaluate(state);
-        self.best.update_best(Outcome { score, actions });
+        let won = state.is_win();
+        self.best.update_best(Outcome { score, actions, win: won });
         &self.best
     }
     /// Advance the best sequence, ensuring the first action is indeed
