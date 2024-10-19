@@ -258,6 +258,27 @@ impl Threat {
     }
 }
 
+#[derive(Clone)]
+pub enum GameOverCheck {
+    /// Only check if the player has a collision at the start of a tick.
+    StartOfTick,
+    /// Check if the player has a collision at the start of a tick and after the
+    /// player has moved.
+    StartOfTickAndAfterPlayerMove,
+}
+
+/// Game options to customize the game's logic.
+#[derive(Clone)]
+pub struct GameOptions {
+    /// How to check for the end of a game.
+    pub game_over: GameOverCheck,
+}
+impl GameOptions {
+    pub fn default() -> Self {
+        Self { game_over: GameOverCheck::StartOfTick }
+    }
+}
+
 #[derive(PartialEq, Clone)]
 pub struct Game {
     pub tick: usize,
@@ -270,6 +291,7 @@ pub struct Game {
 #[derive(Clone)]
 pub struct State {
     pub grid: Arc<PathfindingGrid>,
+    options: GameOptions,
     pub tick: usize,
     pub pos: Pos,
     prev_pos: Pos,
@@ -279,6 +301,10 @@ pub struct State {
 
 impl State {
     pub fn new(game: Game) -> State {
+        Self::new_custom(game, GameOptions::default())
+    }
+
+    pub fn new_custom(game: Game, options: GameOptions) -> Self {
         // Matches
         // https://github.com/JesseEmond/blitz-2025-registration/blob/dbe84ed80ebc441d071d5e6eb0d6a476d580a9e2/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L467
         let prev_pos = Pos { x: -1, y: -1 };
@@ -289,6 +315,7 @@ impl State {
             prev_pos,
             threats: game.threats.clone(),
             game_over: !game.alive,
+            options,
         }
     }
 
@@ -317,6 +344,12 @@ impl State {
             },
         }
         assert!(self.grid.grid.is_empty(&self.pos));
+        if matches!(self.options.game_over, GameOverCheck::StartOfTickAndAfterPlayerMove) {
+            // Note: this is not in the real game. This allows testing the game
+            // without being able to "jump over" enemies.
+            self.game_over = self.check_game_over();
+            if self.game_over { return; }
+        }
         for t in &mut self.threats {
             t.simulate(self.tick, &self.pos, &self.prev_pos, &self.grid);
         }

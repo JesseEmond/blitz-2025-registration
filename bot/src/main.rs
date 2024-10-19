@@ -11,7 +11,7 @@ use devnull_bot::map_loader;
 use devnull_bot::map_loader::{list_map_names, load_map, Map};
 use devnull_bot::mcts::Score;
 use devnull_bot::search::{Bot, BotName};
-use devnull_bot::simulation::{State};
+use devnull_bot::simulation::{GameOptions, GameOverCheck, State};
 
 #[derive(Debug, Parser)]
 #[clap(name = "devnull")]
@@ -24,6 +24,9 @@ struct Cli {
     show_progress: Option<usize>,
     #[arg(long, help = "Print when a new best outcome score is found.")]
     show_new_best_outcome: bool,
+    #[arg(long, default_value_t = true,
+          help = "If we're allowed to jump over enemies on a single tick (for real game, this is true).")]
+    allow_jump_over: std::primitive::bool,
     #[arg(long, help = "How many times to re-run each map, to average scores.")]
     samples: Option<usize>,
     #[arg(long, help = "Force this seed for all evaluations. If unset, pick based on run index.")]
@@ -161,9 +164,10 @@ fn load_eval_maps(selection: MapSelectionArgGroup) -> map_loader::Result<Vec<Map
     Ok(vec![load_map(&name)?])
 }
 
-fn evaluate_map(plan: EvalPlan, seed: u64) -> EvalResults {
+fn evaluate_map(plan: EvalPlan, seed: u64,
+                game_options: &GameOptions) -> EvalResults {
     println!("Evaluating map {}...", plan.map.name);
-    let state = State::new(plan.map.game);
+    let state = State::new_custom(plan.map.game, game_options.clone());
     let mut bots = vec![];
     let is_battle = match &plan.eval {
         EvalType::Solo { name } => {
@@ -254,7 +258,7 @@ fn plan_evals(eval_type: EvalType, num_samples: usize, loaded_maps: &Vec<Map>,
 
 /// Run the targeted evals with the appropriate parallelism.
 fn run_evals(eval_plans: Vec<EvalPlan>, parallelism: usize,
-             fixed_seed: Option<u64>) -> Vec<EvalResults> {
+             fixed_seed: Option<u64>, game_options: &GameOptions) -> Vec<EvalResults> {
     let chunk_size = (eval_plans.len() as f32 / parallelism as f32).ceil() as usize;
     let chunks = eval_plans.chunks(chunk_size);
     thread::scope(|s| {
@@ -265,7 +269,7 @@ fn run_evals(eval_plans: Vec<EvalPlan>, parallelism: usize,
                 let mut results = Vec::new();
                 for (i, plan) in chunk_evals.into_iter().enumerate() {
                     let seed = fixed_seed.unwrap_or((base_index + i) as u64);
-                    results.push(evaluate_map(plan.clone(), seed));
+                    results.push(evaluate_map(plan.clone(), seed, game_options));
                 }
                 results
             }));
@@ -445,10 +449,17 @@ fn main() {
     } else {
         EvalType::Solo { name: cli.bot_selection.bot }
     };
+    let mut game_options = GameOptions::default();
+    if cli.allow_jump_over {
+        // Ensure our default CLI flag value matches the default game setup.
+        assert!(matches!(game_options.game_over, GameOverCheck::StartOfTick));
+    } else {
+        game_options.game_over = GameOverCheck::StartOfTickAndAfterPlayerMove;
+    }
 
     let maps = load_eval_maps(cli.map_selection).expect("Error loading map");
     let evals = plan_evals(eval_type.clone(), repeats, &maps, show_progress,
                            show_new_best_outcome);
-    let results = run_evals(evals, parallelism, fixed_seed);
+    let results = run_evals(evals, parallelism, fixed_seed, &game_options);
     show_results(eval_type, results);
 }
