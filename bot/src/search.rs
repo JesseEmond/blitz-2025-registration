@@ -3,7 +3,6 @@ use smallvec::SmallVec;
 
 use crate::grid::{Move, Pos};
 use crate::mcts;
-use crate::pathfinding::{Cost, COST_INFINITY};
 use crate::simulation::{Game, SimulationAction, State};
 
 /// Available bot algorithms to use.
@@ -22,7 +21,7 @@ pub enum BotName {
     Uct100RolloutsSqrt2CGreedyNotDead,
     /// Show off bot that does an MCTS search like
     /// Uct100RolloutsSqrt2CGreedyNotDead, but for equivalent not-dead states
-    /// prioritizes the ones that have the highest sum of enemy distances, to
+    /// prioritizes the ones that have the highest number of near enemies, to
     /// make the bot look like it's surviving in extra dangerous situations.
     ShowOff,
 }
@@ -108,17 +107,17 @@ impl<Spec: mcts::MCTS<State = State>> mcts::Evaluator<Spec> for NotDeadShowOffEv
         // Similar to NotDeadEval, manually do a check for game over and not the
         // "game_over" flag, since it checks at the next tick.
         if state.check_game_over() { 0.0 } else {
-            // "show off" heuristic that tries to maximize how close the bot is
-            // to enemies
-            let max_dist = state.grid.grid.width as Cost * state.grid.grid.height as Cost;
-            state.threats.iter()
+            // "show off" heuristic that tries to maximize the number of near
+            // enemies.
+            let max_close_enemies = state.threats.len();
+            let close_enemies = state.threats.iter()
                 .map(|threat| state.grid.get_cost(&state.pos, &threat.pos))
-                .filter(|&dist| dist != COST_INFINITY)
-                // Negate the distances to prioritize closer enemies, but ensure
-                // values are above 0 (with 'max_dist') to ensure the score is
-                // still above a 'game_over' score.
-                .map(|dist| max_dist + 1 - dist)
-                .sum::<usize>() as mcts::Score
+                .filter(|&dist| dist <= 2)  // a few steps away
+                .count();
+            // Negate the count enemies to maximize it, but ensure values are
+            // above 0 (with 'max_close_enemies') to ensure the score is still
+            // above a 'game_over' score.
+            (max_close_enemies + 1 - close_enemies) as mcts::Score
         }
     }
 }
