@@ -9,7 +9,6 @@
 ///     type State = MyState;
 ///     type Evaluator = MyEvaluator;
 ///     type Budget = mcts::TimeBudget;
-///     type Heuristic = MyEvaluator;
 ///     type ActionSpace = Vec<MyAction>;
 ///   }
 ///   // ...
@@ -44,8 +43,6 @@ pub trait MCTS: Sized {
     // Search related
     /// Evaluator of a state's goodness.
     type Evaluator: Evaluator<Self>;
-    /// Evaluator for rollout policies requiring a heuristic.
-    type Heuristic: Evaluator<Self>;
     /// Budget constraining the search.
     type Budget: SearchBudget;
 }
@@ -64,7 +61,7 @@ pub trait SearchState<Spec: MCTS> {
 }
 
 pub type Score = f32;
-pub trait Evaluator<Spec: MCTS> {
+pub trait Evaluator<Spec: MCTS> : Sync + Send {
     /// Goodness score of this state. Higher is better.
     /// Note: 'state' might not be terminal.
     fn evaluate(&self, state: &Spec::State) -> Score;
@@ -641,11 +638,11 @@ impl<Spec: MCTS> SimulationPolicy<Spec> for RandomPolicy {
 
 /// Rollout policy that picks the next action that maximizes a heuristic.
 /// For equivalent scores, pick randomly.
-pub struct GreedyPolicy<Spec: MCTS> {
+pub struct GreedyPolicy<'a, Spec: MCTS> {
     pub rng: ChaCha8Rng,
-    pub heuristic: Spec::Heuristic,
+    pub heuristic: Box<dyn Evaluator<Spec> + 'a>,
 }
-impl<Spec: MCTS> SimulationPolicy<Spec> for GreedyPolicy<Spec> {
+impl<'a, Spec: MCTS> SimulationPolicy<Spec> for GreedyPolicy<'a, Spec> {
     fn pick_action(&mut self, state: &Spec::State,
                    actions: &Spec::ActionSpace) -> usize {
         // TODO: This should be configurable.
@@ -672,8 +669,8 @@ impl<Spec: MCTS> SimulationPolicy<Spec> for GreedyPolicy<Spec> {
         *option_indices.choose(&mut self.rng).unwrap()
     }
 }
-impl<Spec: MCTS> GreedyPolicy<Spec> {
-    pub fn new(seed: u64, heuristic: Spec::Heuristic) -> Self {
+impl<'a, Spec: MCTS> GreedyPolicy<'a, Spec> {
+    pub fn new(seed: u64, heuristic: Box<dyn Evaluator<Spec>>) -> Self {
         Self { rng: ChaCha8Rng::seed_from_u64(seed), heuristic }
     }
 }

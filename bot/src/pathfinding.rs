@@ -5,7 +5,7 @@ use crate::grid::{EmptyTile, Grid, Move, Pos};
 
 pub type Cost = usize;
 /// Impossible cost in our game.
-const COST_INFINITY: Cost = Cost::MAX;
+pub const COST_INFINITY: Cost = Cost::MAX;
 
 pub type Path = Vec<Pos>;
 
@@ -276,6 +276,11 @@ impl PathfindingGrid {
     pub fn get_aggressive_path(&self, from: &Pos, to: &Pos) -> Vec<Pos> {
         let from_idx = self.grid.empty_tile_idx(from);
         self.pathfinding_states[from_idx].get_path(&self.grid, to)
+    }
+
+    pub fn get_cost(&self, from: &Pos, to: &Pos) -> Cost {
+        let from_idx = self.grid.empty_tile_idx(from);
+        self.pathfinding_states[from_idx].get_cost(&self.grid, to)
     }
 
     pub fn get_pathfinding_next_move(&self, from: &Pos, to: &Pos) -> Option<Move> {

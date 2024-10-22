@@ -3,6 +3,7 @@ use smallvec::SmallVec;
 
 use crate::grid::{Move, Pos};
 use crate::mcts;
+use crate::pathfinding::{Cost, COST_INFINITY};
 use crate::simulation::{Game, SimulationAction, State};
 
 /// Available bot algorithms to use.
@@ -19,7 +20,16 @@ pub enum BotName {
     /// selection with c=sqrt(2). Rollouts are greedy with a 'do not die'
     /// heuristic.
     Uct100RolloutsSqrt2CGreedyNotDead,
+    /// Show off bot that does an MCTS search like
+    /// Uct100RolloutsSqrt2CGreedyNotDead, but for equivalent not-dead states
+    /// prioritizes the ones that have the highest sum of enemy distances, to
+    /// make the bot look like it's surviving in extra dangerous situations.
+    ShowOff,
 }
+
+/// Best bot we have / preferred bot. Default bot used on initialization.
+// Not really the best search-wise, but gives cooler games.
+const BEST_BOT: BotName = BotName::ShowOff;
 
 impl BotName {
     fn make_algorithm<'a>(
@@ -31,7 +41,10 @@ impl BotName {
             BotName::Uct100RolloutsSqrt2C => mcts::uct_algorithm(params, 2_f32.sqrt(), 100, state),
             BotName::Uct100RolloutsSqrt2CGreedyNotDead => mcts::uct_algorithm_rollout(
                 params, 2_f32.sqrt(), 100, state,
-                Box::new(mcts::GreedyPolicy::new(seed, NotDeadEval {}))),
+                Box::new(mcts::GreedyPolicy::new(seed, Box::new(NotDeadEval {})))),
+            BotName::ShowOff => mcts::uct_algorithm_rollout(
+                params, 2_f32.sqrt(), 100, state,
+                Box::new(mcts::GreedyPolicy::new(seed, Box::new(NotDeadShowOffEval {})))),
         }
     }
 }
@@ -89,6 +102,27 @@ impl<Spec: mcts::MCTS<State = State>> mcts::Evaluator<Spec> for NotDeadEval {
     }
 }
 
+pub struct NotDeadShowOffEval;
+impl<Spec: mcts::MCTS<State = State>> mcts::Evaluator<Spec> for NotDeadShowOffEval {
+    fn evaluate(&self, state: &Spec::State) -> mcts::Score {
+        // Similar to NotDeadEval, manually do a check for game over and not the
+        // "game_over" flag, since it checks at the next tick.
+        if state.check_game_over() { 0.0 } else {
+            // "show off" heuristic that tries to maximize how close the bot is
+            // to enemies
+            let max_dist = state.grid.grid.width as Cost * state.grid.grid.height as Cost;
+            state.threats.iter()
+                .map(|threat| state.grid.get_cost(&state.pos, &threat.pos))
+                .filter(|&dist| dist != COST_INFINITY)
+                // Negate the distances to prioritize closer enemies, but ensure
+                // values are above 0 (with 'max_dist') to ensure the score is
+                // still above a 'game_over' score.
+                .map(|dist| max_dist + 1 - dist)
+                .sum::<usize>() as mcts::Score
+        }
+    }
+}
+
 impl<Spec: mcts::MCTS<State = State, Action = Action, ActionSpace = ActionSpace>>
 mcts::SearchState<Spec> for State {
     fn generate_actions(&self) -> Spec::ActionSpace {
@@ -116,7 +150,6 @@ impl mcts::MCTS for MCTS {
     type State = State;
     type ActionSpace = ActionSpace;
     type Evaluator = TicksSurvivedEval;
-    type Heuristic = NotDeadEval;
     type Budget = mcts::TimeBudget;
 }
 
@@ -127,7 +160,7 @@ pub struct Bot<'a> {
 
 impl Bot<'_> {
     pub fn new_best(state: State, seed: u64) -> Self {
-        Self::new(state, seed, BotName::Uct100RolloutsSqrt2CGreedyNotDead)
+        Self::new(state, seed, BEST_BOT)
     }
 
     pub fn new(state: State, seed: u64, name: BotName) -> Self {
