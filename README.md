@@ -13,14 +13,20 @@ TODO: video example of the game?
   
 ## Let's Make a Simple Bot  
 ### Simple, but in Python  
+
 ![[shiny_python.png]]
+
 _Python, but shiny._
+
 TODO: don't step on threats (but tough if don't know where enemies are going)  
 TODO: go to "safe spots" on map  
   
 ### Simple, but in Rust  
+
 ![[rusty_python.png]]
+
 _"Python"._
+
 (python programming logo, but rusty)  
 TODO: why rewrite in Rust?  
 TODO: what tech to do that  
@@ -39,7 +45,9 @@ TODO like last year (link to doc), we want to replicate the server logic. we hav
 TODO Regretted not spending time improving the tooling there, but thankfully it's the same Node version, so can even reuse work from last year as-is & it worked! The trick is: similar to how Vercel patches the C++ of the NodeJS interpreter to package a NodeJS application in it and pretend that JS imports are reading from disk when they're instead reading from a hardcoded string, we can _also_ patch the C++ to do our bidding. Here, our bidding involves using internal V8 functions to print disassembled code  
 TODO example of what that looks like, in V8, TODO github ptr to what that looks like  
 TODO example of what that looks like, in JS-like, remember the original code is TypeScript (TODO: verify?)  
+
 ![[coveo_devs_typescript_vs_us_v8.png]]
+
 TODO Will's help here to make it a bit more readable  
 TODO github ptrs to Will decompiled versions  
 TODO example before/after  
