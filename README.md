@@ -13,11 +13,14 @@ TODO: video example of the game?
   
 ## Let's Make a Simple Bot  
 ### Simple, but in Python  
-(python programming logo)  
+![[shiny_python.png]]
+_Python, but shiny._
 TODO: don't step on threats (but tough if don't know where enemies are going)  
 TODO: go to "safe spots" on map  
   
 ### Simple, but in Rust  
+![[rusty_python.png]]
+_"Python"._
 (python programming logo, but rusty)  
 TODO: why rewrite in Rust?  
 TODO: what tech to do that  
@@ -36,7 +39,7 @@ TODO like last year (link to doc), we want to replicate the server logic. we hav
 TODO Regretted not spending time improving the tooling there, but thankfully it's the same Node version, so can even reuse work from last year as-is & it worked! The trick is: similar to how Vercel patches the C++ of the NodeJS interpreter to package a NodeJS application in it and pretend that JS imports are reading from disk when they're instead reading from a hardcoded string, we can _also_ patch the C++ to do our bidding. Here, our bidding involves using internal V8 functions to print disassembled code  
 TODO example of what that looks like, in V8, TODO github ptr to what that looks like  
 TODO example of what that looks like, in JS-like, remember the original code is TypeScript (TODO: verify?)  
-(todo img coveo devs vs us)  
+![[coveo_devs_typescript_vs_us_v8.png]]
 TODO Will's help here to make it a bit more readable  
 TODO github ptrs to Will decompiled versions  
 TODO example before/after  
@@ -187,7 +190,7 @@ class PathfindingGrid {
 		return path;
 	}
 	getNeighbors(pos) {
-		[new Vector(pos.x - 1, pos.y),
+		return [new Vector(pos.x - 1, pos.y),
 		 new Vector(pos.x + 1, pos.y),
 		 new Vector(pos.x, pos.y - 1),
 		 new Vector(pos.x, pos.y + 1)].filter(
@@ -421,7 +424,7 @@ def get_next_move(self, state):
 
 I talked about random "good intersections", what's that all about? I invite you to experience the pleasure of reverse engineering it yourself: [V8 assembly](https://github.com/JesseEmond/blitz-2025-registration/blob/main/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/sheriff.disass.js).
 
-Okay, V8 assembly is maybe a bit rough, here's pseudo-JS:
+Okay, V8 assembly is maybe a bit rough, here's pseudo-JS for you to reverse:
 ```js
 function func_getRowLength_00000343ED31FC19(a0)
 {
@@ -612,18 +615,44 @@ Alright I'll spare you -- here's what it does (or [Rust](https://github.com/Jess
 
 Intuitively, remember that our Sheriff here -- ahem, hawk -- chases players that it sees in a "line of sight" (no walls between direct horizontal or vertical line between player and the hawk). This strategically places the hawk at spots where it covers a lot of visible tiles.
 #### Maps  
-TODO game only had N maps  
-TODO loading from png TODO ptr + rust ptr  
-TODO can detect map on load  
+Our local version of the game has a `maps` folder, with 6 `challenge` maps in it. From running a couple of games on the server, we see that the server is running the same maps that we have locally.
+
+To really replicate the server from tick 0, we need to load the maps just like the server is doing. This is not strictly necessary -- we can copy the state of the server that we receive on tick 0, but doing this enables us to do cool things like:
+- Play full games in Rust without needing a server on the side (faster games when testing);
+- Easily run on all maps and gather statistics of how well our bot performs.
+
+The game loading logic is [here](https://github.com/JesseEmond/blitz-2025-registration/blob/main/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/maps/map_loader.decomp.js), but essentially it parses a super tiny PNG that looks like this:
+![[map_layout.png]]
+and where each pixel is a tile and each color maps to a specific entity type (a threat, a player spawn, a wall).
+
+If you squint, you can kind of see that it's this one:
+![[map_layout_real.png]]
+
+When we receive tick 0, we can check all the maps we know about and find out which one it is (& verify that we _do_ indeed know about all the maps shown to us on the server).
   
 ## TODO Cloning + Search + Jump Over  
-TODO with full cloning, can do full local play, no need to run with server  
-TODO optimizations, rewrite all in terms of flat array of empty tiles, in particular shark pathfinding & unit tests to compare, ref to A* pages, precompute pathfinding states and moves, aggressive path is unique, but can reuse for other pathfinding so use that  
-TODO search (TODO what lib), minimax  
+
+We can start our proper bot by ignoring all our hard work from above and do a minimax-like search with a heuristic eval of "threats are as far as possible". I started with this, with a depth of 10 -- where a "turn" here means either simulating a player movement or an enemy move (pretend that the game turns are: player, enemy 1, enemy 2, enemy 3, enemy 4, player, enemy 1, ...)
+
+But for threats that we know how to predict, we can skip the work of looking at all their possible moves and just pick the move we _know_ it will take. This is akin to getting a search depth "for free" when we encounter this threat type (well, not free, at a compute cost of simulating it). Note that as we simulate more and more threat types, this extra compute cost becomes noticeable and we must reduce our search depth to keep it reasonable. We gradually end up with a shallower search to stay in the time budget, but we fully know what will happen when we explore a possibility (& are still looking at more of _our_ moves ahead -- less "turns" spent on enemies).
+
+This also means that optimizing our simulation can really pay off -- we unblock budget to do a deeper search of more moves ahead.
+
+Here are some of the optimizations I implemented (measuring them using [benchmarks](https://github.com/bheisler/criterion.rs) and finding optimization opportunities with [profiling](https://nnethercote.github.io/perf-book/profiling.html)), with relative speedups applied incrementally based on the previous item:
+- _get_aggressive_path_ **60% relative speedup**: Instead of working with a 2D grid & positions, assign empty tiles a unique ID (quick lookup index in a 2D grid) and treat it as a smaller 1D array. Use this representation to easily replace `HashMap` for pathfinding `cost` and `came_from` as vectors [`c40df79`](https://github.com/JesseEmond/blitz-2025-registration/commit/c40df79659b0e837d5bbbf2e2b5e8ea0f48424c7);
+- _get_aggressive_path_ **96% relative speedup**: Avoid sorting the entire frontier on each loop iteration, but while preserving the behavior of the JS implementation that sorts each time [`2710622`](https://github.com/JesseEmond/blitz-2025-registration/commit/27106223aae66a9a31c3afe42de1de9efa4d3724) -- will detail below;
+- _get_aggressive_path_ **93% relative speedup** (when player is near): Early exit pathfinding when the target is found, relevant in real play when we're getting chased and the Shark gets closer and closer [`0d6de5f`](https://github.com/JesseEmond/blitz-2025-registration/commit/0d6de5f9049854b39488dfc745a66ec3a4db66ca)
+- _get_aggressive_path_ **50% speedup**: after refactor that creates a common interface for slow & fast pathfinding implementation, to unit test correctness of optimization ([`16ca111`](https://github.com/JesseEmond/blitz-2025-registration/commit/16ca1119677ebf5a3b3828f307385fb88a72975b)), suspected due to removing `next_frontier` deque and just using the one frontier with simpler buffers ([`2af1797`](https://github.com/JesseEmond/blitz-2025-registration/commit/2af1797f9ae3b629776ac365fc3f454b6d017ea8)) -- will detail below;
+- Precompute neighbors of each tiles on the first tick [`239c202`](https://github.com/JesseEmond/blitz-2025-registration/commit/239c202d6247371b42c3f6c96db8d22b3992426a);
+- Precompute paths for all possible empty tile pairs [`4563896`](https://github.com/JesseEmond/blitz-2025-registration/commit/4563896952d6a4ad90f529803a7edd881a854591);
+
+TODO get aggressive path remove sort trick
+
 TODO tested and ... jump over!? + show video, would not have noticed without the search, wow, sure enough the server only checks for death at XYZ  
+
 TODO won 10k pts!  
   
-TODO highlight  
+TODO highlight + free bird
 TODO fast vid  
 TODO slow vid  
   
