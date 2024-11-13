@@ -44,7 +44,7 @@ TODO Regretted not spending time improving the tooling there, but thankfully it'
 TODO example of what that looks like, in V8, TODO github ptr to what that looks like  
 TODO example of what that looks like, in JS-like, remember the original code is TypeScript (TODO: verify?)  
 
-![Two images side-by-side: Margot Robbie happy in a pink car, with caption "Coveo Devs" and Cillian Murphy in a suit and a hat looking very serious, with caption "Us". At the bottom there is a green box that has the text "TypeScript => Javascript => V8 bytecode"](readme_media/coveo_devs_typescript_vs_us_v8.png)
+![Two images side-by-side: Margot Robbie happy in a pink car, with caption "Coveo Devs" and Cillian Murphy in a suit and a hat looking very serious in a grayscale image, with caption "Us". At the bottom there is a green box that has the text "TypeScript => Javascript => V8 bytecode"](readme_media/coveo_devs_typescript_vs_us_v8.png)
 
 TODO Will's help here to make it a bit more readable  
 TODO github ptrs to Will decompiled versions  
@@ -85,7 +85,7 @@ Essentially:
 - Update threats.
   
 #### Common Threat Logic  
-Now, before going into the logic of each threat, it's helpful to describe a few utility classes and methods that are available and will be used in the per-bot logic.  
+Now, before going into the logic of each threat, it's helpful to describe a few utility classes and methods that are available and will be used in the per-threat logic.  
   
 ##### Random Number Generation  
 Each threat [stores](https://github.com/JesseEmond/blitz-2025-registration/blob/a179249c7b6a6c618dab7975739a3f4ee013114f/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L448) an internal seed that starts at `0`. Every time a new number is generated, that seed is incremented. You'll see that the random number generation is a bit unique, and honestly I'm not sure how feasible it would be to clone the server's logic if we weren't reversing the assembly here!  
@@ -165,15 +165,16 @@ class Threat {
 ```  
 ([update source](https://github.com/JesseEmond/blitz-2025-registration/blob/a179249c7b6a6c618dab7975739a3f4ee013114f/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L53-L90), [ctor source](https://github.com/JesseEmond/blitz-2025-registration/blob/a179249c7b6a6c618dab7975739a3f4ee013114f/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L441-L450))
 
-In other words, threats start by moving every 5 ticks, then after 301 ticks they move every 4 ticks, then after 501 ticks they move every 3 ticks, until 901 ticks where they start moving every tick. This is interesting, because we might expect that surviving up to 1500 ticks is not that far from surviving up to the maximum of 2000 ticks.
+In other words, threats start by moving every 5 ticks, then after 301 ticks they move every 4 ticks, then after 501 ticks they move every 3 ticks, until 901 ticks where they start moving every tick. This is interesting, because we might expect that surviving >900 ticks is not that far from surviving up to the maximum of 2000 ticks (in practice, it's not that simple).
 ##### Pathfinding  
 The game has utils with pathfinding logic. We'll see that not all threats rely on this for pathfinding, but it appears in a couple of places.
 
-I won't copy  [the code](https://github.com/JesseEmond/blitz-2025-registration/blob/main/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/utils/pathfinding.decomp.js) here because it's a non-trivial amount, but it suffices to say that it computes, for every possible starting square, the shortest distance to every other square on the grid. Let me plug [this resource](https://www.redblobgames.com/pathfinding/a-star/introduction.html#breadth-first-search) for great pointers to really understand pathfinding algorithms and internalize how they work.
-In terms of cloning this logic, the exact details of how this is done aren't that important to us, because the utils really only save the cost for every possible `(from, to)` pairs, they don't store a specific move sequence (i.e. the `came_from` map is not preserved).
-All we need to know is that there is a `internalGetDistances(from)` method that will return costs to other possible `to` positions, and that instead of returning a grid of positions, it encodes 2D positions as an integer with `width * y + x`.
+I won't copy [the code](https://github.com/JesseEmond/blitz-2025-registration/blob/main/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/utils/pathfinding.decomp.js) here because it's a non-trivial amount, but it computes, for every possible starting square, the shortest distance to every other square on the grid. Let me use this as a chance to plug [Amit's A-Star pages](https://www.redblobgames.com/pathfinding/a-star/introduction.html#breadth-first-search) for great pointers to really understand pathfinding algorithms and internalize how they work.
+In terms of cloning this, the exact details of how closest distances are computed aren't that important to us, because the utils really only save the cost for every possible `(from, to)` pairs, they don't store a specific move sequence to reach each pair (in other words, the `came_from` mapping is not preserved).
 
-Instead, we just need to focus on how `getPath` works, since the threats use this to pick their next move (i.e. to move to the next cell on the path). It works like the following:
+Just know that the code uses a `internalGetDistances(from)` method that will return costs to other possible `to` positions, and that instead of returning a grid of positions, it encodes 2D positions as an integer with `width * y + x`.
+
+We really care about how `getPath` works, since the threats use this to pick their next move (i.e. to move to the next cell on the path). It works like the following:
 ```js
 class PathfindingGrid {
 	internalGetDistances(from) { /* ... */ }
@@ -205,7 +206,8 @@ class PathfindingGrid {
 }
 ```
 
-Note that I included the implementation of `getNeighbors` above, because that's effectively all we need to clone the server's logic -- to pick the next neighbor in the `left, right, up, down` order that brings us closer to `to`.
+I included the implementation of `getNeighbors` above, because that's effectively all we need to clone the server's logic -- to pick the next neighbor in the `left, right, up, down` order that brings us closer to `to`.
+
 ##### Spawning Orientation  
 When a threat is created, it generates its orientation [randomly](https://github.com/JesseEmond/blitz-2025-registration/blob/a179249c7b6a6c618dab7975739a3f4ee013114f/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L381-L401):
 ```js
@@ -228,9 +230,12 @@ class Threat {
 I highlight this for a couple of reasons:
 - This call to `randomNumber` will increment the seed, and we want to clone the server's RNG correctly, so we need to clone this to really start our `_seed` at 1;
 - The logic of some threats relies on orientation, so replicating this matters;
-But also, recall that `randomNumber()` does `Math.sin(seed) * 10000`, and `sin(0)`is, well, `0`. So the first `randomNumber()` **will always be exactly 0**! We can see this by noticing that **all threats start the game looking `up`** (first element in the list):
+
+But also, recall that `randomNumber()` does `Math.sin(seed) * 10000`, and `sin(0)` is, well, `0`. So the first `randomNumber()` **will always be exactly 0**! We can see this by noticing that **all threats start the game looking `up`** (first element in the list):
 ![Image of the game where all cars are facing up](readme_media/first_direction_always_up.png)
-This might be deliberate and is really not a big deal -- even if it was seed `424242` they would all have the same orientation from generating the same first random number anyway, but I thought it was worth calling out to be aware of the implications of using a simpler/custom random number generator. :)
+
+This might be deliberate and is really not a big deal -- even if it was seed `424242` they would all have the same orientation from generating the same first random number to index in an array of length 4 anyway, but I thought it was worth calling out the first-is-always-`0.000000...` to be aware of the implications of using a simpler/custom random number generator. :)
+
 #### Threats Logic  
 Now let's reimplement each threat, one at a time. The order I list them in matches the order I implemented them in, based on what looked easier to understand & clone from a glance at the decompiled JS.
 
@@ -267,17 +272,18 @@ class StraightAheadThreat extends Threat {
 ```  
 ([decompiled JS](https://github.com/JesseEmond/blitz-2025-registration/blob/main/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/straight_ahead_threat.decomp.js), [Rust re-implementation](https://github.com/JesseEmond/blitz-2025-registration/blob/a179249c7b6a6c618dab7975739a3f4ee013114f/bot/src/simulation.rs#L115-L124))
 ##### Deer (aka tse_le_fantome_orange_dans_pacman)  
-This one's a bit funny. Like the internal name implies, this is "y'know, like the orange ghost in Pacman". If we [read on the pacman orange ghost Clyde](https://gameinternals.com/understanding-pac-man-ghost-behavior), we learn that it will chase Pacman when they're far apart, but will change its mind once it gets close. Here, the deer will chase us when we're far, and go back to its spawn point when we're too close.
+This one's a bit funny. Like the internal name implies, this is "y'know, like the orange ghost in Pacman". If we read on [the pacman orange ghost Clyde](https://gameinternals.com/understanding-pac-man-ghost-behavior), we learn that it will chase Pacman when they're far apart, but will change its mind once it gets close. Here, the deer will chase us when we're far, and go back to its spawn point when we're too close.
 
-See it as: go near player, BUT NOT THAT CLOSE!
+See it as: go near player, BUT NOT THAT CLOSE.
 
 It will check how far it is from the player, via Euclidean distance, to pick its "target":  
 - If the distance is <= 6 (player is "close"), target its own spawn point;  
 - Else (player is "far"), target the player.  
+
 Then, it will consider its possible directions (`getPossibleDirections()`):  
 - If only one is possible, it will just pick that one.  
 - Else, it will only consider positions that are not "behind" it, and pick the one that reduces its Euclidean distance to its target the most.  
-- For equivalent options (same distance to target), it will favor the order returned by `getPossibleDirections()` (this is because modern JS Array sort is now stable -- our packaged NodeJS has version v18.5.0, which uses V8 version v10.2.154.4, and V8 has only had stable sort [since v7.0](https://v8.dev/blog/array-sort)).  
+- For equivalent options (same distance to target), it will favor the order returned by `getPossibleDirections()` (this is because modern JS Array sort is now stable (it wasn't before!?) -- our packaged NodeJS has version v18.5.0, which uses V8 version v10.2.154.4, and V8 has (only!?) had stable sort [since v7.0](https://v8.dev/blog/array-sort)).  
   
 In code:  
 ```js
@@ -303,10 +309,11 @@ class LeFantomeOrangeDansPacmanThreat extends Threat {
 }
 ```  
 ([decompiled JS](https://github.com/JesseEmond/blitz-2025-registration/blob/main/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/tse_le_fantome_orange_dans_pacman.decomp.js), [Rust re-implementation](https://github.com/JesseEmond/blitz-2025-registration/blob/a179249c7b6a6c618dab7975739a3f4ee013114f/bot/src/simulation.rs#L127-L142))
+
 ##### Shark (aka aggressive)  
 At a high level, this bot is pathfinding directly towards us. This means that whatever move we do, if we're not moving away from this bot, it inches closer and closer for the kill ([DUN-DUN DUN-DUN DUN-DUN 🦈](https://www.youtube.com/watch?v=ZvCI-gNK_y4)).  
   
-But it's also an interesting one, because it uses its own pathfinding logic and does not use the pathfinding utils presented earlier. Crucially, it implements pathfinding in a unique way that can yield different paths (but equivalent cost-wise). We care about this when cloning the server.
+But it's also an interesting one, because it uses its own pathfinding logic and does not use the pathfinding utils presented earlier. Crucially, it implements pathfinding in a unique way that can yield different paths from the utils version (but equivalent cost-wise). We care about this when cloning the server.
   
 Let me summarize this with pseudo code here:
 ```python
@@ -343,9 +350,9 @@ def get_aggressive_path(game_map, from_pos, to_pos):
 ```  
 ([decompiled JS](https://github.com/JesseEmond/blitz-2025-registration/blob/main/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/aggressive.decomp.js), [Rust re-implementation](https://github.com/JesseEmond/blitz-2025-registration/blob/a179249c7b6a6c618dab7975739a3f4ee013114f/bot/src/pathfinding.rs#L61-L122))
 
-For all things pathfinding, I highly recommend (again) [Amit's pages](https://theory.stanford.edu/~amitp/GameProgramming/)as a resource, I'll be reusing some of the vocabulary from there. Overall, the above `get_aggressive_path` for pathfinding purposes works correctly, and overall looks fairly similar to a typical Dijkstra search.
+For all things pathfinding, I highly recommend (again) [Amit's pages](https://theory.stanford.edu/~amitp/GameProgramming/) as a resource, I'll be reusing some of the vocabulary from there. Overall, the above `get_aggressive_path` for pathfinding purposes works correctly, and looks fairly similar to a typical Dijkstra search.
 
-What stands out, however, is the sort of all unseen positions on each loop. The choice to sort the frontier queue every time a new node is picked is a costly one that can subtly impact the pathfinding outputs if not copied. This is fine of course for a server that processes a single tick, but you'll see later that this is a challenge for us if we want to rapidly simulate the server many times in 100ms when searching for our next move.
+What stands out, however, is the sort of all yet-unseen positions on each loop. The choice to sort the frontier queue every time a new node is picked is a costly one that can subtly impact the pathfinding outputs if not replicated. This is fine of course for a server that processes a single tick, but you'll see later that this is a challenge for us if we want to rapidly simulate the server many times in 100ms when searching for our next move.
   
 ##### Owl (aka surveillance)  
 This one is a bit more funky (guessing the specifics without reverse engineering sounds... challenging):  
@@ -378,8 +385,9 @@ class SurveillanceThreat extends Threat {
 }
 ```  
 ([decompiled JS](https://github.com/JesseEmond/blitz-2025-registration/blob/main/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/surveillance.decomp.js), [Rust re-implementation](https://github.com/JesseEmond/blitz-2025-registration/blob/a179249c7b6a6c618dab7975739a3f4ee013114f/bot/src/simulation.rs#L149-L166))
+
 ##### Hawk (aka sheriff)  
-This one is even funkier! It does "line of sight" checks, has an idle state, remembers when the player was last seen, and has a concept of "best intersections". It has it all! It's effectively a state machine that switches between states that I'll call: **chasing**, **positioning**, or **idling**.
+This one is even funkier! Guessing the specifics without reverse engineering sounds... Well, infeasible; It does "line of sight" checks, has an idle state, remembers when the player was last seen, and has a concept of "best intersections". It has it all! It's effectively a state machine that switches between states that I'll call: **chasing**, **positioning**, or **idling**.
   
 Let's break it down:  
 - In any state, if the player is in the hawk's line of sight (same x or same y, no walls in between), go in **chasing** mode (remember that position as "last seen", set "idle rounds" to 0).  
@@ -614,17 +622,18 @@ function func_getRandomIntersection_00000343ED31F2D9()
 ```
 ([source](https://github.com/JesseEmond/blitz-2025-registration/blob/main/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/sheriff.decomp.js))
 
-Alright I'll spare you -- here's what it does (or [Rust](https://github.com/JesseEmond/blitz-2025-registration/blob/a179249c7b6a6c618dab7975739a3f4ee013114f/bot/src/grid.rs#L150-L170), if you prefer):
+Alright I'll spare you -- here's what it does (or read [Rust](https://github.com/JesseEmond/blitz-2025-registration/blob/a179249c7b6a6c618dab7975739a3f4ee013114f/bot/src/grid.rs#L150-L170), if you prefer):
 - List all the "intersection points", defined as positions that have at least 3 empty neighbors (i.e. not a corner tile or a corridor tile);
-- Sort them (descending) by how many "visible tiles" (here `getRowLength`) can be seen up/down/left/right from that position;
+- Sort them (descending) by how many "visible tiles" (here `getRowLength`) can be seen up/down/left/right from that position without a wall in the way;
 - Keep the top 10.
 
-Intuitively, remember that our Sheriff here -- ahem, hawk -- chases players that it sees in a "line of sight" (no walls between direct horizontal or vertical line between player and the hawk). This strategically places the hawk at spots where it covers a lot of visible tiles.
+Intuitively, remember that our Sheriff here -- ahem, hawk -- chases players that it sees in a "line of sight" (no walls between direct horizontal or vertical line between player and the hawk). This intersections business strategically places the hawk at spots where it covers a lot of visible tiles.
+
 #### Maps  
 Our local version of the game has a `maps` folder, with 6 `challenge` maps in it. From running a couple of games on the server, we see that the server is running the same maps that we have locally.
 
-To really replicate the server from tick 0, we need to load the maps just like the server is doing. This is not strictly necessary -- we can copy the state of the server that we receive on tick 0, but doing this enables us to do cool things like:
-- Play full games in Rust without needing a server on the side (faster games when testing);
+To really replicate the server from tick 0, we want to load the maps just like the server is doing. This is not strictly necessary -- we can copy the state of the server that we receive on tick 0, but doing this enables us to do cool things like:
+- Play full games in Rust without needing a server on the side (faster games when testing, or adding custom rules for fun);
 - Easily run on all maps and gather statistics of how well our bot performs.
 
 The game loading logic is [here](https://github.com/JesseEmond/blitz-2025-registration/blob/main/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/maps/map_loader.decomp.js), but essentially it parses a super tiny PNG that looks like this:
@@ -638,6 +647,9 @@ When we receive tick 0, we can check all the maps we know about and find out whi
   
 ## TODO Cloning + Search + Jump Over  
 
+TODO: add subsections
+
+TODO: reword & move to simple bot
 We can start our proper bot by ignoring all our hard work from above and do a minimax-like search with a heuristic eval of "threats are as far as possible". I started with this, with a depth of 10 -- where a "turn" here means either simulating a player movement or an enemy move (pretend that the game turns are: player, enemy 1, enemy 2, enemy 3, enemy 4, player, enemy 1, ...)
 
 But for threats that we know how to predict, we can skip the work of looking at all their possible moves and just pick the move we _know_ it will take. This is akin to getting a search depth "for free" when we encounter this threat type (well, not free, at a compute cost of simulating it). Note that as we simulate more and more threat types, this extra compute cost becomes noticeable and we must reduce our search depth to keep it reasonable. We gradually end up with a shallower search to stay in the time budget, but we fully know what will happen when we explore a possibility (& are still looking at more of _our_ moves ahead -- less "turns" spent on enemies).
@@ -648,7 +660,7 @@ Here are some of the optimizations I implemented (measuring them using [benchmar
 - _get_aggressive_path_ **60% relative speedup**: Instead of working with a 2D grid & positions, assign empty tiles a unique ID (quick lookup index in a 2D grid) and treat it as a smaller 1D array. Use this representation to easily replace `HashMap` for pathfinding `cost` and `came_from` as vectors [`c40df79`](https://github.com/JesseEmond/blitz-2025-registration/commit/c40df79659b0e837d5bbbf2e2b5e8ea0f48424c7);
 - _get_aggressive_path_ **96% relative speedup**: Avoid sorting the entire frontier on each loop iteration, but while preserving the behavior of the JS implementation that sorts each time [`2710622`](https://github.com/JesseEmond/blitz-2025-registration/commit/27106223aae66a9a31c3afe42de1de9efa4d3724) -- will detail below;
 - _get_aggressive_path_ **93% relative speedup** (when player is near): Early exit pathfinding when the target is found, relevant in real play when we're getting chased and the Shark gets closer and closer [`0d6de5f`](https://github.com/JesseEmond/blitz-2025-registration/commit/0d6de5f9049854b39488dfc745a66ec3a4db66ca)
-- _get_aggressive_path_ **50% speedup**: after refactor that creates a common interface for slow & fast pathfinding implementation, to unit test correctness of optimization ([`16ca111`](https://github.com/JesseEmond/blitz-2025-registration/commit/16ca1119677ebf5a3b3828f307385fb88a72975b)), suspected due to removing `next_frontier` deque and just using the one frontier with simpler buffers ([`2af1797`](https://github.com/JesseEmond/blitz-2025-registration/commit/2af1797f9ae3b629776ac365fc3f454b6d017ea8)) -- will detail below;
+- _get_aggressive_path_ **50% speedup**: after refactor that creates a common interface for slow & fast pathfinding implementation, to unit test correctness of optimization ([`16ca111`](https://github.com/JesseEmond/blitz-2025-registration/commit/16ca1119677ebf5a3b3828f307385fb88a72975b)), speedup suspected due to removing `next_frontier` deque and just using the one frontier with simpler buffers ([`2af1797`](https://github.com/JesseEmond/blitz-2025-registration/commit/2af1797f9ae3b629776ac365fc3f454b6d017ea8)) -- will detail below;
 - Precompute neighbors of each tiles on the first tick [`239c202`](https://github.com/JesseEmond/blitz-2025-registration/commit/239c202d6247371b42c3f6c96db8d22b3992426a);
 - Precompute paths for all possible empty tile pairs [`4563896`](https://github.com/JesseEmond/blitz-2025-registration/commit/4563896952d6a4ad90f529803a7edd881a854591);
 
