@@ -14,7 +14,7 @@ TODO: video example of the game?
 ## Let's Make a Simple Bot  
 ### Simple, but in Python  
 
-![[readme_media/shiny_python.png]]
+![Python programming language logo made out of metal](readme_media/shiny_python.png)
 _Python, but shiny._
 
 TODO: don't step on threats (but tough if don't know where enemies are going)  
@@ -22,7 +22,7 @@ TODO: go to "safe spots" on map
   
 ### Simple, but in Rust  
 
-![[readme_media/rusty_python.png]]
+![Python programming language logo made out of metal, but covered in rust](readme_media/rusty_python.png)
 _"Python"._
 
 (python programming logo, but rusty)  
@@ -44,7 +44,7 @@ TODO Regretted not spending time improving the tooling there, but thankfully it'
 TODO example of what that looks like, in V8, TODO github ptr to what that looks like  
 TODO example of what that looks like, in JS-like, remember the original code is TypeScript (TODO: verify?)  
 
-![[readme_media/coveo_devs_typescript_vs_us_v8.png]]
+![Two images side-by-side: Margot Robbie happy in a pink car, with caption "Coveo Devs" and Cillian Murphy in a suit and a hat looking very serious, with caption "Us". At the bottom there is a green box that has the text "TypeScript => Javascript => V8 bytecode"](readme_media/coveo_devs_typescript_vs_us_v8.png)
 
 TODO Will's help here to make it a bit more readable  
 TODO github ptrs to Will decompiled versions  
@@ -229,7 +229,7 @@ I highlight this for a couple of reasons:
 - This call to `randomNumber` will increment the seed, and we want to clone the server's RNG correctly, so we need to clone this to really start our `_seed` at 1;
 - The logic of some threats relies on orientation, so replicating this matters;
 But also, recall that `randomNumber()` does `Math.sin(seed) * 10000`, and `sin(0)`is, well, `0`. So the first `randomNumber()` **will always be exactly 0**! We can see this by noticing that **all threats start the game looking `up`** (first element in the list):
-![[readme_media/first_direction_always_up.png]]
+![Image of the game where all cars are facing up](readme_media/first_direction_always_up.png)
 This might be deliberate and is really not a big deal -- even if it was seed `424242` they would all have the same orientation from generating the same first random number anyway, but I thought it was worth calling out to be aware of the implications of using a simpler/custom random number generator. :)
 #### Threats Logic  
 Now let's reimplement each threat, one at a time. The order I list them in matches the order I implemented them in, based on what looked easier to understand & clone from a glance at the decompiled JS.
@@ -628,11 +628,11 @@ To really replicate the server from tick 0, we need to load the maps just like t
 - Easily run on all maps and gather statistics of how well our bot performs.
 
 The game loading logic is [here](https://github.com/JesseEmond/blitz-2025-registration/blob/main/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/maps/map_loader.decomp.js), but essentially it parses a super tiny PNG that looks like this:
-![[readme_media/map_layout.png]]
+![Very small image with high constrast pixels showing the layout of a map](readme_media/map_layout.png)
 and where each pixel is a tile and each color maps to a specific entity type (a threat, a player spawn, a wall).
 
 If you squint, you can kind of see that it's this one:
-![[readme_media/map_layout_real.png]]
+![Image of the game, showing the same road layouts as the previous layout image](readme_media/map_layout_real.png)
 
 When we receive tick 0, we can check all the maps we know about and find out which one it is (& verify that we _do_ indeed know about all the maps shown to us on the server).
   
