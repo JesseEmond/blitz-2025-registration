@@ -128,8 +128,6 @@ Similar to last year, Coveo is packaging a NodeJS application using [vercel/pkg]
 
 If you care about the details here, see [this section](https://github.com/JesseEmond/blitz-2024-registration/tree/main?tab=readme-ov-file#rabbit-hole-1-what-if-blitz-was-a-ctf) from last year.
 
-Ultimately, there has unfortunately not been much movement in the open-source tooling for reversing such files, and I regretted not spending time improving the tooling here since last year.
-
 But, thankfully, this year's application is packaged using the same NodeJS version, so we can even reuse our work from last year as-is and it worked! We are able to recover the V8 assembly!
 
 The trick is again this:
@@ -267,7 +265,9 @@ And, just like last year, this still looks a bit weird (e.g. `__esModule`...?) i
 You can visualize it like this:
 ![Two images side-by-side: Margot Robbie happy in a pink car, with caption "Coveo Devs" and Cillian Murphy in a suit and a hat looking very serious in a grayscale image, with caption "Us". At the bottom there is a green box that has the text "TypeScript => Javascript => V8 bytecode"](readme_media/coveo_devs_typescript_vs_us_v8.png)
 
-However, this year this was a _lot_ easier to work with. [willtrnr](https://github.com/willtrnr) came to the rescue and wrote an auto conversion from the V8 assembly to much more readable JS-like code. **THANK YOU!**
+However, this year this was a _lot_ easier to work with. [willtrnr](https://github.com/willtrnr) came to the rescue and TODO found https://research.checkpoint.com/2024/exploring-compiled-v8-javascript-usage-in-malware/ + https://github.com/suleram/View8 + tinkered to get it working with the right version etc. to produce decompile the V8 assembly to much more readable JS-like code. **HUGE THANK YOU!**
+
+TODO how does this work & similarities + extra
 
 Instead of parsing V8 assembly, we can instead look at semi-decompiled JS in files `.decomp.js`. If you want to "read the server's code" (well, decompiled JS from the final V8), look for these files in [this same directory](https://github.com/JesseEmond/blitz-2025-registration/tree/main/disassembled_js/490a918d96484178d4b23d814405ac87).
 
