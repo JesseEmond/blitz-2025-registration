@@ -44,7 +44,9 @@ We can play a few games to find out the following as well:
 - We can send an empty list of actions to stay still on a tick.
 
 A game with an early bot AI might look like this (every movement of the red car is controlled by our bot):
-![video of a game where the red car mostly stays still away from the enemy cars and moves when they get close. The game ends with two enemy cars catching a red car stuck in a corridor](readme_media/example_game_1280pts.mp4)
+
+https://github.com/user-attachments/assets/c14011a1-1bb2-4a88-8d99-4cc59fcba48c
+
 In the game above, we survived for 256 ticks, worth **1,280 points**.
 ## Let's Start Simple
 ### Simple, but in Python  
