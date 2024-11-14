@@ -1,56 +1,273 @@
 # Blitz 2025 Registration - /dev/null  
-TODO: Intro, past challenges  
-TODO: overkill tradition  
-TODO: challenge line, top possible score, reached on all possible maps  
-  
+It's this time of year again -- time to put an unnecessary amount of time and overkill in a Coveo Blitz registration challenge.
+
+Now don't worry; this year there's no need to [reverse engineer V8 assembly to predict randomness](https://github.com/JesseEmond/blitz-2024-registration/tree/main) (2024), [simulate ants](https://github.com/JesseEmond/blitz-2023-inscription) (2023), or play [Tetris on steroids](https://github.com/JesseEmond/blitz-2022-inscription) (2022) -- this year we're playing with **Hot Wheels Pacman**.
+
+... I *might* be lying. There *might* have been some assembly involved this year, too. I can't help it. *BUT HEY* we ended up with the theoretically maximum, **10,005 points, on all possible maps**!
+
+That makes it all worth it, right?
+
+*... right?*
 ## The Challenge  
-(img catch me if you can)  
-TODO: [https://2025.blitz.codes/#/dashboard/documentation](https://2025.blitz.codes/#/dashboard/documentation) summary  
-TODO: constraints (100ms, "low" mem)  
-TODO: optimal possible score  
-TODO: early observations, bot types  
-TODO: video example of the game?  
-  
-## Let's Make a Simple Bot  
+We're essentially roleplaying this movie, but with cars:
+![poster for the movie Catch me if you can with Leonardo DiCaprio and Tom Hanks](readme_media/catch_me_if_you_can.png)
+_We get to be Leonardo DiCaprio, while Coveo HR is Tom Hanks._
+
+But the game really looks like this:
+![Example of a game, we see a 2D grid made up of streets and walls, with a red car in the center left, with dark cars positioned elsewhere on the roads](readme_media/game_example.png)
+Our car is the red one (objectively the fastest color), and we are told that Coveo HR is trying to catch us with all those other cars because we forgot to complete our timesheet last quarter, and we want to avoid them for as long as possible (... _what is happening in Coveo offices!?_).
+
+We're presented with a turn-based game.
+
+Each **turn**, our bot must pick an action: move **up**, **down**, **left**, or **right** (or "move to position", and Coveo gracefully does the pathfinding for us).
+
+Our bot must pick its action each turn **within 100ms** based on the game state we receive from the server, which notably contains information about each **threat**:
+- Position & direction;
+- "Personality" (what's that?)
+- "Style" (what's that?)
+
+Our bot gets scored by how many ticks it survived (1 tick is worth 5 points). There is a maximum of 2,000 ticks per game. Thus, the maximum possible score is **10k points** (in reality, as you'll see: 10,005 points).
+
+... And that's pretty much all the info we get.
+
+We can play a few games to find out the following as well:
+- There's a couple of different maps;
+- `style` can be a couple of different values:
+	- `goldfish`
+	- `bull`
+	- `deer`
+	- `shark`
+	- `owl`
+	- `hawk`
+- `personality` seems to always be `lazy`, but maybe that can change...? (spoiler: it can);
+- We can send an empty list of actions to stay still on a tick.
+
+A game with an early bot AI might look like this (every movement of the red car is controlled by our bot):
+![video of a game where the red car mostly stays still away from the enemy cars and moves when they get close. The game ends with two enemy cars catching a red car stuck in a corridor](readme_media/example_game_1280pts.mp4)
+In the game above, we survived for 256 ticks, worth **1,280 points**.
+## Let's Start Simple
 ### Simple, but in Python  
 
 ![Python programming language logo made out of metal](readme_media/shiny_python.png)
 _Python, but shiny._
 
-TODO: don't step on threats (but tough if don't know where enemies are going)  
-TODO: go to "safe spots" on map  
-  
+We can kick off our Blitz journey with incremental improvements to a Python bot while we become more familiar with the challenge:
+- Pick a random direction, but don't pick directions that have walls;
+- Don't walk on top of a threat (note: but we don't know how threats move, so who knows!);
+- Walk towards "safety", or spots that have a higher distance to any possible threat;
+- When not immediately at risk (e.g. a threat with distance 2 near us), move towards the safest point on the map.
+
+My memory is a bit fuzzy, but I think the example video I shared above was effectively doing this. It's not horrible, we can get a bit over 1,000 points with this!
+
+But surely we can do better?
 ### Simple, but in Rust  
 
 ![Python programming language logo made out of metal, but covered in rust](readme_media/rusty_python.png)
 _"Python"._
 
-(python programming logo, but rusty)  
-TODO: why rewrite in Rust?  
-TODO: what tech to do that  
-TODO: search, check few moves in the future (with sampling)  
-TODO: minimax search  
+First, why already rewrite in Rust? Couldn't we do a ton more to improve this bot?
+
+Pragmatically, that's certainly the case. But I know myself; I know I'll try to push the challenge a bit and try to do a search for good moves and make use of our 100ms budget, and I'll be glad to not have the language become a crutch at some point in that process and to have invested early in the intended "final state". Plus, it's a good excuse to practice & learn Rust more!
+
+To do this, a lot of our [2024 setup](https://github.com/JesseEmond/blitz-2024-registration/tree/main?tab=readme-ov-file) can be reused. We can make our Python code be a very thin bot that only calls into a real Rust implementation that does the real work. For that, we can use [pyo3](https://pyo3.rs/v0.22.6/). See commit [`7aa519e`](https://github.com/JesseEmond/blitz-2025-registration/commit/7aa519e411554596e982e3ea84409f477dab1873) for an example of how to do that.
+
+Once we're done recoding our bot in Rust, we can then start looking in the future a bit when considering a move. A simple approach is to pretend that enemy threats are all purely random, and sample their possible actions multiple times to get a probabilistic idea of how good a move is.
+
+But presumably some threats are somewhat intelligent ("`shark`"? that can't be good for us), so we can go to the other extreme and instead start doing a [minimax](https://en.wikipedia.org/wiki/Minimax) search with some heuristic, pretending that enemies are *really* trying to give us a bad time. We can do this by using some heuristic like "threats are as far as possible to us", and also treat the game as if it was turn-based for enemies even (i.e. pretend that game turns are: player, enemy 1, enemy 2, enemy 3, enemy 4, player, enemy 1, ...). The search graph would then look like:
+![search graph visualization where the first layer is a root node with two options, the second layer are nodes with options for enemy 1, the next layer are nodes with options for enemy 2, the next layer are options for the player once more, and an implied continuity](search_graph_example.png)
+
+I started with that, with a search depth of 10.
+
+But this is not ideal either, because the threats are probably not actively searching for our possible moves in the future like a game of chess, they likely have some set logic that we don't quite know about. So this will make a very pessimistic bot that thinks that threats will always get them soon, and be surprised when they don't really. 
+Sometimes our bot will run into threats, even, because it assumes that regardless of what actions it takes, the threats will catch it in the next couple turns, so what does it matter if it's on turn 1 instead of 5? (some of this is because our heuristic should reward surviving longer, but still).
+
+It's as if it thinks it's getting chased by this creature:
+![generated image of a mutant animal that has antlers, body, and ears of a deer, the face of an owl, the tail of a goldfish, and the fin of a shark](readme_media/merged_animal.png)
+
+Wouldn't it be great if we didn't have to model the enemies as seers that can counter our every moves, and instead really understood how a `shark` or a `goldfish` thinks?
   
 ## Let's ~~Cheat~~ See the Future  
-(todo some image)  
-  
-TODO: faced with enemies with unknown logic, can approach this in multiple ways: guess logic archetypes and model them stochastically, learn via RL (would be very interesting), replicate the server logic and treat this as a search problem, etc.  
-TODO: for me, I get the most fun from Blitz challenges by trying to answer, assuming no time constraint, "what would an optimal bot do", and do a mini version of that with the given time budget. This is why I wasted a bunch of time trying to get Held-Karp to work for TSP, calculated probabilities of perfect score when packing tetrominoes, and took a deep dive into reverse engineered last year's binary to perfectly predict the server's random number generation.  
-TODO: and what would that look like here? Imagine a bot that searches for the best move by looking many moves ahead while knowing exactly how the bots would react? But that would mean that we'd need to perfectly replicate the server and reverse engin-- oh. Oh no. Not again?  
+Faced with enemies with unknown logic, we could approach this in multiple ways:
+- Make educated guesses for what the threat "styles" might mean ("owl", "shark", "bull", "deer", etc.) and play many games to test our theories;
+- Treat this as a Reinforcement Learning problem, play many many offline games and learn useful patterns (e.g. using [Q-Learning](https://en.wikipedia.org/wiki/Q-learning));
+- Craft heuristics that humans intuitively follow when playing a game like this;
+- Replicate the server's logic exactly and treat this as a search problem;
+- etc.
+
+All these are valuable and would give very interesting bots that can perform well.
+
+For me, I get the most fun from a Blitz challenge by trying to answer, assuming no time constraint, "what would an optimal bot do?", and do a mini version of that with the given time budget. This is why I wasted a bunch of time [trying to get Held-Karp to work for TSP](https://github.com/JesseEmond/blitz-2023-inscription?tab=readme-ov-file#%EF%B8%8F-exact-solver-held-karp), calculated [probabilities of perfect score when packing tetrominoes](https://github.com/JesseEmond/blitz-2022-inscription?tab=readme-ov-file#probability-of-a-perfect-score), and took a deep dive into reverse engineering last year's binary to [perfectly predict the server's random number generation](https://github.com/JesseEmond/blitz-2024-registration/tree/main?tab=readme-ov-file#rabbit-hole-2-nostradamus).
+
+What would an optimal bot look like, here?
+
+Close your eyes.
+
+Imagine a bot that searches for the best sequence of moves by looking many moves ahead while knowing _exactly_ how the bots would react *(how are you reading this?)*
+
+That would be nice, right? But that would mean that we'd have to perfectly replicate the server... and _that_ would mean that we need to reverse enginee-- oh.
+
+Oh no.
+
+Not again?
   
 ### Reading Assembly for Virtual Points in a Competition I Can't Participate In  
-TODO like last year (link to doc), we want to replicate the server logic. we have linux binary. if we were to open that binary in Ghidra, we'd find that it's X Y Z. Turns out it's node. Like last year, it's using vercel pkg. What's really happening here: TODO vercel works like XYZ.  
-TODO Regretted not spending time improving the tooling there, but thankfully it's the same Node version, so can even reuse work from last year as-is & it worked! The trick is: similar to how Vercel patches the C++ of the NodeJS interpreter to package a NodeJS application in it and pretend that JS imports are reading from disk when they're instead reading from a hardcoded string, we can _also_ patch the C++ to do our bidding. Here, our bidding involves using internal V8 functions to print disassembled code  
-TODO example of what that looks like, in V8, TODO github ptr to what that looks like  
-TODO example of what that looks like, in JS-like, remember the original code is TypeScript (TODO: verify?)  
 
+Similarly to [last year](https://github.com/JesseEmond/blitz-2024-registration/tree/main?tab=readme-ov-file#rabbit-hole-1-what-if-blitz-was-a-ctf), we're given a linux executable binary with the server's logic in it. All the answers to our questions are in it, we just have to work a little (alright, a lot) to get them.
+
+If we were to open the binary in [Ghidra](https://ghidra-sre.org/), we'd have a bad time and it would look quite complex for the game we're dealing with. The reason for that is because the binary is not just a binary of the challenge, it's a *full NodeJS interpreter* binary!
+
+Similar to last year, Coveo is packaging a NodeJS application using [vercel/pkg](https://github.com/vercel/pkg), and Vercel pkg works like this:
+- Start from the source code of a NodeJS interpreter (C++);
+- Apply patches to the NodeJS source to do the following:
+	- Add all of the application's JS code (compiled to internal V8 bytecode) as a hardcoded string in the binary;
+	- Change the *main* function to run a Vercel bootstrapping JS file that will pretend that operations like *import* are reading from the filesystem, when in reality they read from that hardcoded constant in the binary;
+
+If you care about the details here, see [this section](https://github.com/JesseEmond/blitz-2024-registration/tree/main?tab=readme-ov-file#rabbit-hole-1-what-if-blitz-was-a-ctf) from last year.
+
+Ultimately, there has unfortunately not been much movement in the open-source tooling for reversing such files, and I regretted not spending time improving the tooling here since last year.
+
+But, thankfully, this year's application is packaged using the same NodeJS version, so we can even reuse our work from last year as-is and it worked! We are able to recover the V8 assembly!
+
+The trick is again this:
+- Similar to how Vercel patches the C++ of the NodeJS interpreter to package a NodeJS application in it, we can _also_ patch the C++ to do our bidding.
+- Here, our bidding involves using internal V8 functions to print disassembled code, right after loading it.
+- Then, we use that binary to read the challenge's unpackaged serialized JS files to recover V8 assembly.
+
+So, for a file like `ation_types.js` that defines the actions like go up, go down, etc., we'll get something like:
+```
+=== [0x2bb5c29a4db8] DISASSEMBLY ===
+Parameter count 1
+Register count 1
+Frame size 8
+OSR urgency: 0
+Bytecode age: 0
+    0 S> 0x2bb5c29a4db8 @    0 : 80 00 00 00       CreateClosure [0], [0], #0
+         0x2bb5c29a4dbc @    4 : c4                Star0 
+  398 S> 0x2bb5c29a4dbd @    5 : a9                Return 
+Constant pool (size = 1)
+0x2bb5c29a4dc1: [FixedArray] in OldSpace
+ - map: 0x3ccb09b012e1 <Map>
+ - length: 1
+           0: 0x2bb5c29a4dd9 <SharedFunctionInfo>
+Handler Table (size = 0)
+Source Position Table (size = 7)
+0x2bb5c29a52e1 <ByteArray[7]>
+0x2bb5c29a4dd9 points to: [0x2bb5c29a4e48]
+=== [0x2bb5c29a4e48] DISASSEMBLY ===
+Parameter count 6
+Register count 6
+Frame size 48
+OSR urgency: 0
+Bytecode age: 0
+   10 E> 0x2bb5c29a4e48 @    0 : 83 00 01          CreateFunctionContext [0], [1]
+         0x2bb5c29a4e4b @    3 : 1a fa             PushContext r0
+   76 S> 0x2bb5c29a4e4d @    5 : 21 01 00          LdaGlobal [1], [0]
+         0x2bb5c29a4e50 @    8 : c2                Star2 
+   83 E> 0x2bb5c29a4e51 @    9 : 2d f8 02 02       GetNamedProperty r2, [2], [2]
+         0x2bb5c29a4e55 @   13 : c3                Star1 
+         0x2bb5c29a4e56 @   14 : 13 03             LdaConstant [3]
+         0x2bb5c29a4e58 @   16 : c0                Star4 
+   98 E> 0x2bb5c29a4e59 @   17 : 7c 04 04 29       CreateObjectLiteral [4], [4], #41
+         0x2bb5c29a4e5d @   21 : bf                Star5 
+         0x2bb5c29a4e5e @   22 : 19 03 f7          Mov a0, r3
+   83 E> 0x2bb5c29a4e61 @   25 : 5c f9 f8 04 05    CallProperty r1, r2-r5, [5]
+  139 S> 0x2bb5c29a4e66 @   30 : 0e                LdaUndefined 
+  158 E> 0x2bb5c29a4e67 @   31 : 32 03 05 07       SetNamedProperty a0, [5], [7]
+  190 S> 0x2bb5c29a4e6b @   35 : 13 06             LdaConstant [6]
+         0x2bb5c29a4e6d @   37 : c2                Star2 
+  190 E> 0x2bb5c29a4e6e @   38 : 62 04 f8 09       CallUndefinedReceiver1 a1, r2, [9]
+  190 E> 0x2bb5c29a4e72 @   42 : 25 02             StaCurrentContextSlot [2]
+  229 S> 0x2bb5c29a4e74 @   44 : 21 01 00          LdaGlobal [1], [0]
+         0x2bb5c29a4e77 @   47 : c2                Star2 
+  236 E> 0x2bb5c29a4e78 @   48 : 2d f8 02 02       GetNamedProperty r2, [2], [2]
+         0x2bb5c29a4e7c @   52 : c3                Star1 
+         0x2bb5c29a4e7d @   53 : 13 05             LdaConstant [5]
+         0x2bb5c29a4e7f @   55 : c0                Star4 
+  251 E> 0x2bb5c29a4e80 @   56 : 7c 07 0b 29       CreateObjectLiteral [7], [11], #41
+
+[... 64 more lines of this]
+```
+If you want to explore this, look at [this directory](https://github.com/JesseEmond/blitz-2025-registration/tree/main/disassembled_js/490a918d96484178d4b23d814405ac87) and read files that end in `.disass.js` (example: [`action_types.disass.js`](https://github.com/JesseEmond/blitz-2025-registration/blob/main/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/actions/action_types.disass.js)).
+
+If we were to write this as JS-like code, it might look like:
+```js
+function func_unknown()
+{
+    r0 = func_unknown_00000251A459DD69
+    return func_unknown_00000251A459DD69
+}
+function func_unknown_00000251A459DD69(a0, a1, a2, a3, a4)
+{
+    r1 = Scope[0]
+    Scope[1][2] = null
+    Scope[1][3] = null
+    r6 = new {"value": true}
+    r4 = a0
+    ACCU = "Object"["defineProperty"](r4, "__esModule", r6)
+    a0["ActionFactory"] = func_ActionFactory_00000251A459DF19
+    Scope[1][2] = a1("../geometry/vector")
+    Scope[1][3] = a1("./action_types")
+    return undefined
+}
+function func_ActionFactory_00000251A459DF19(a0)
+{
+    if (!typeof(a0["type"]) == string)
+    	|| (a0["type"]["length"] === 0)
+    {
+        r1 = ("invalid action type" + String(a0["type"]))
+        ACCU = "Error"
+        ACCU = "Error"(r1)
+    }
+    switch ()
+    case a0["type"] === Scope[1][3]["ActionType"]["MOVE_LEFT"]:
+    {
+        r1 = new {"type": null}
+        r1["type"] = Scope[1][3]["ActionType"]["MOVE_LEFT"]
+        return r1
+    }
+    case a0["type"] === Scope[1][3]["ActionType"]["MOVE_RIGHT"]:
+    {
+        r1 = new {"type": null}
+        r1["type"] = Scope[1][3]["ActionType"]["MOVE_RIGHT"]
+        return r1
+    }
+    case a0["type"] === Scope[1][3]["ActionType"]["MOVE_UP"]:
+    {
+        r1 = new {"type": null}
+        r1["type"] = Scope[1][3]["ActionType"]["MOVE_UP"]
+        return r1
+    }
+    case a0["type"] === Scope[1][3]["ActionType"]["MOVE_DOWN"]:
+    {
+        r1 = new {"type": null}
+        r1["type"] = Scope[1][3]["ActionType"]["MOVE_DOWN"]
+        return r1
+    }
+    case a0["type"] === Scope[1][3]["ActionType"]["MOVE_TO"]:
+    {
+        r1 = new {"type": null, "position": null}
+        r1["type"] = Scope[1][3]["ActionType"]["MOVE_TO"]
+        r1["position"] = Scope[1][2]["Vector"]["fromPosition"](a0["position"])
+        return r1
+    }
+    default:
+    {}
+    r2 = ("invalid action type" + String(a0["type"]))
+    ACCU = "Error"
+    ACCU = "Error"(r2)
+}
+```
+
+And, just like last year, this still looks a bit weird (e.g. `__esModule`...?) in part because **Coveo Devs are using TypeScript**. In other words, we're staring at V8 assembly that was compiled from JavaScript, which was transpiled from TypeScript, and trying to figure out what's going on.
+
+You can visualize it like this:
 ![Two images side-by-side: Margot Robbie happy in a pink car, with caption "Coveo Devs" and Cillian Murphy in a suit and a hat looking very serious in a grayscale image, with caption "Us". At the bottom there is a green box that has the text "TypeScript => Javascript => V8 bytecode"](readme_media/coveo_devs_typescript_vs_us_v8.png)
 
-TODO Will's help here to make it a bit more readable  
-TODO github ptrs to Will decompiled versions  
-TODO example before/after  
-TODO value of proper tooling => pkg is deprecated because nodejs now supports this, but code now gets packaged with TODO, and still storing the cached function TODO, so still useful  
-  
+However, this year this was a _lot_ easier to work with. [willtrnr](https://github.com/willtrnr) came to the rescue and wrote an auto conversion from the V8 assembly to much more readable JS-like code. **THANK YOU!**
+
+Instead of parsing V8 assembly, we can instead look at semi-decompiled JS in files `.decomp.js`. If you want to "read the server's code" (well, decompiled JS from the final V8), look for these files in [this same directory](https://github.com/JesseEmond/blitz-2025-registration/tree/main/disassembled_js/490a918d96484178d4b23d814405ac87).
+
+Finally, there is still value in improving this tooling moving forward. vercel/pkg is now [archived and deprecated](https://github.com/vercel/pkg/commit/9066ceeb391d9c7ba6aba650109c2fa3f8e088eb) because NodeJS now supports [single executable applications](https://nodejs.org/api/single-executable-applications.html). However, if we look into how this works, it's still storing a [V8 code cache](https://nodejs.org/api/single-executable-applications.html#v8-code-cache-support), but stored using a different [packaging mechanism](https://github.com/nodejs/postject).
 ### Recovering The Server's Code (or not, idk we have assembly)  
 TODO approach: play a bunch of games, store per-tick info for each (TODO util ptr), replay games offline (TODO util ptr), check assertions vs. our simulation. Start with very little assertions, gradually add more until we can full predict everything from the reverse engineered code (e.g. if our simulation is wrong, we misread the reverse engineered code). TODO now lying a bit because I initially was running games via python each time and would wait to see an assertion break, which made it quite painful to debug failures => switched to standalone that deterministically replays existing games at some point, much faster iterations  
 TODO won't go into details and exact same code, because 1) we don't have access to it, we just have our reinterpretation of it, and 2) a lot of it not necessarily worth calling out for our purposes of writing a bot, will mostly provide ptrs to decompiled code for the interested & provide python-like pseudocode/highlights at times  
