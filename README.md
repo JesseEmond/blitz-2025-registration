@@ -10,6 +10,7 @@ That makes it all worth it, right?
 *... right?*
 ## The Challenge  
 We're essentially roleplaying this movie, but with cars:
+
 ![poster for the movie Catch me if you can with Leonardo DiCaprio and Tom Hanks](readme_media/catch_me_if_you_can.png)
 _We get to be Leonardo DiCaprio, while Coveo HR is Tom Hanks._
 
@@ -74,7 +75,7 @@ To do this, a lot of our [2024 setup](https://github.com/JesseEmond/blitz-2024-r
 Once we're done recoding our bot in Rust, we can then start looking in the future a bit when considering a move. A simple approach is to pretend that enemy threats are all purely random, and sample their possible actions multiple times to get a probabilistic idea of how good a move is.
 
 But presumably some threats are somewhat intelligent ("`shark`"? that can't be good for us), so we can go to the other extreme and instead start doing a [minimax](https://en.wikipedia.org/wiki/Minimax) search with some heuristic, pretending that enemies are *really* trying to give us a bad time. We can do this by using some heuristic like "threats are as far as possible to us", and also treat the game as if it was turn-based for enemies even (i.e. pretend that game turns are: player, enemy 1, enemy 2, enemy 3, enemy 4, player, enemy 1, ...). The search graph would then look like:
-![search graph visualization where the first layer is a root node with two options, the second layer are nodes with options for enemy 1, the next layer are nodes with options for enemy 2, the next layer are options for the player once more, and an implied continuity](search_graph_example.png)
+![search graph visualization where the first layer is a root node with two options, the second layer are nodes with options for enemy 1, the next layer are nodes with options for enemy 2, the next layer are options for the player once more, and an implied continuity](readme_media/search_graph_example.png)
 
 I started with that, with a search depth of 10.
 
@@ -83,6 +84,7 @@ Sometimes our bot will run into threats, even, because it assumes that regardles
 
 It's as if it thinks it's getting chased by this creature:
 ![generated image of a mutant animal that has antlers, body, and ears of a deer, the face of an owl, the tail of a goldfish, and the fin of a shark](readme_media/merged_animal.png)
+_All fear the Goldeerowl._
 
 Wouldn't it be great if we didn't have to model the enemies as seers that can counter our every moves, and instead really understood how a `shark` or a `goldfish` thinks?
   
