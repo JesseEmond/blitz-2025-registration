@@ -519,7 +519,7 @@ It will check how far it is from the player, via Euclidean distance, to pick its
 Then, it will consider its possible directions (`getPossibleDirections()`):  
 - If only one is possible, it will just pick that one.  
 - Else, it will only consider positions that are not "behind" it, and pick the one that reduces its Euclidean distance to its target the most.  
-- For equivalent options (same distance to target), it will favor the order returned by `getPossibleDirections()` (this is because modern JS Array sort is now stable (it wasn't before!?) -- our packaged NodeJS has version v18.5.0, which uses V8 version v10.2.154.4, and V8 has (only!?) had stable sort [since v7.0](https://v8.dev/blog/array-sort)).  
+- For equivalent options (same distance to target), it will favor the order returned by `getPossibleDirections()` (this is because modern JS Array sort is now [stable](https://en.m.wikipedia.org/wiki/Sorting_algorithm#Stability) (it wasn't before!?) -- our packaged NodeJS has version v18.5.0, which uses V8 version v10.2.154.4, and V8 has (only!?) had stable sort [since v7.0](https://v8.dev/blog/array-sort)).  
   
 In code:  
 ```js
@@ -1033,7 +1033,7 @@ class ServerLikeAggressivePathfinder(Pathfinder):
 This sort every `next_node` is expensive. Instead, we can create an optimized version. We can verify its correctness by ensuring, in a unit test, that the server-like version and the optimized version return `next_node`s in the same order.
 
 To optimize this pathfinding, we need to keep the following in mind:
-- Sort in modern JS is stable;
+- Sort in modern JS is [stable](https://en.m.wikipedia.org/wiki/Sorting_algorithm#Stability)
 - Sort is called at the start of the loop, so any newly queued same-cost nodes added in the same loop will keep their relative order from `empty_tiles` instead of being in the order seen;
 - When performing pathfinding on a grid with uniform costs like this, we can simplify the representation and just keep track of the current frontier (all of the same cost), with a "next frontier" for nodes with frontier cost + 1.
 ```python
