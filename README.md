@@ -953,7 +953,7 @@ Node = int
 Path = list[Node]
 
 @dataclass
-def PathfinderState:
+class PathfinderState:
 	"""State of pathfinding from a given start point."""
 	# cost[node_idx], shortest distance from 'start' to a node.
 	cost: list[Cost]
