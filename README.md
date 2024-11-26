@@ -104,7 +104,7 @@ For me, I get the most fun from a Blitz challenge by trying to answer, assuming 
 
 What would an optimal bot look like, here?
 
-Close your eyes.
+*Close your eyes.*
 
 Imagine a bot that searches for the best sequence of moves by looking many moves ahead while knowing _exactly_ how the bots would react *(how are you reading this?)*
 
@@ -131,6 +131,7 @@ If you care about the details here, see [this section](https://github.com/JesseE
 But, thankfully, this year's application is packaged using the same NodeJS version, so we can even reuse our work from last year as-is and it worked! We are able to recover the V8 assembly!
 
 The trick is again this:
+- Extracted the serialized bytecode with [pkg-unpacker](https://github.com/LockBlock-dev/pkg-unpacker);
 - Similar to how Vercel patches the C++ of the NodeJS interpreter to package a NodeJS application in it, we can _also_ patch the C++ to do our bidding.
 - Here, our bidding involves using internal V8 functions to print disassembled code, right after loading it.
 - Then, we use that binary to read the challenge's unpackaged serialized JS files to recover V8 assembly.
@@ -265,19 +266,32 @@ And, just like last year, this still looks a bit weird (e.g. `__esModule`...?) i
 You can visualize it like this:
 ![Two images side-by-side: Margot Robbie happy in a pink car, with caption "Coveo Devs" and Cillian Murphy in a suit and a hat looking very serious in a grayscale image, with caption "Us". At the bottom there is a green box that has the text "TypeScript => Javascript => V8 bytecode"](readme_media/coveo_devs_typescript_vs_us_v8.png)
 
-However, this year this was a _lot_ easier to work with. [willtrnr](https://github.com/willtrnr) came to the rescue and TODO found https://research.checkpoint.com/2024/exploring-compiled-v8-javascript-usage-in-malware/ + https://github.com/suleram/View8 + tinkered to get it working with the right version etc. to produce decompile the V8 assembly to much more readable JS-like code. **HUGE THANK YOU!**
+However, this year this was a _lot_ easier to work with. [willtrnr](https://github.com/willtrnr) came to the rescue (**huge thank you**) and shared shiny new tooling that exists since ~july 2024: [View8](https://github.com/suleram/View8). This is a static analysis tool to decompile serialized V8 bytecode (yay!), using a patched compile V8 binary. You can read [this blog post](https://research.checkpoint.com/2024/exploring-compiled-v8-javascript-usage-in-malware/ ) to learn more about it.
 
-TODO how does this work & similarities + extra
+What's interesting is that it approaches it very similarly to what was described so far -- it patches a NodeJS binary (see the available versions on [this page](https://github.com/suleram/View8/releases)) to produce disassembled V8 assembly. Then, it goes a step further to parse, translate, and simplify this assembly to produce much more readable JS-like code. See [translate_table.py](https://github.com/suleram/View8/blob/main/Translate/translate_table.py) for some example translations of the assembly. This is neat!
 
-Instead of parsing V8 assembly, we can instead look at semi-decompiled JS in files `.decomp.js`. If you want to "read the server's code" (well, decompiled JS from the final V8), look for these files in [this same directory](https://github.com/JesseEmond/blitz-2025-registration/tree/main/disassembled_js/490a918d96484178d4b23d814405ac87).
+It's also cool to see that our extremely hacky approach is not too far off from the approach taken here, but unfortunately their custom patch to NodeJS code (which I really would have liked to see, to see how to do this more cleanly) isn't published, they just released specific exes of patched versions. For that reason as well, Will had to go through a fair amount of tinkering to get this working with Coveo's binary.
 
-Finally, there is still value in improving this tooling moving forward. vercel/pkg is now [archived and deprecated](https://github.com/vercel/pkg/commit/9066ceeb391d9c7ba6aba650109c2fa3f8e088eb) because NodeJS now supports [single executable applications](https://nodejs.org/api/single-executable-applications.html). However, if we look into how this works, it's still storing a [V8 code cache](https://nodejs.org/api/single-executable-applications.html#v8-code-cache-support), but stored using a different [packaging mechanism](https://github.com/nodejs/postject).
+All this to say: instead of parsing V8 assembly, we can look at semi-decompiled JS in files `.decomp.js`. If you want to "read the server's code" (well, decompiled JS from the final V8), look for these files in [this same directory](https://github.com/JesseEmond/blitz-2025-registration/tree/main/disassembled_js/490a918d96484178d4b23d814405ac87).
+
+Finally, there is still value in improving the workflow of this tooling moving forward. vercel/pkg is now [archived and deprecated](https://github.com/vercel/pkg/commit/9066ceeb391d9c7ba6aba650109c2fa3f8e088eb) because NodeJS now supports [single executable applications](https://nodejs.org/api/single-executable-applications.html). However, if we look into how this works, it's still storing a [V8 code cache](https://nodejs.org/api/single-executable-applications.html#v8-code-cache-support), but stored using a different [packaging mechanism](https://github.com/nodejs/postject).
 ### Recovering The Server's Code (or not, idk we have assembly)  
-TODO approach: play a bunch of games, store per-tick info for each (TODO util ptr), replay games offline (TODO util ptr), check assertions vs. our simulation. Start with very little assertions, gradually add more until we can full predict everything from the reverse engineered code (e.g. if our simulation is wrong, we misread the reverse engineered code). TODO now lying a bit because I initially was running games via python each time and would wait to see an assertion break, which made it quite painful to debug failures => switched to standalone that deterministically replays existing games at some point, much faster iterations  
-TODO won't go into details and exact same code, because 1) we don't have access to it, we just have our reinterpretation of it, and 2) a lot of it not necessarily worth calling out for our purposes of writing a bot, will mostly provide ptrs to decompiled code for the interested & provide python-like pseudocode/highlights at times  
-TODO remember our objective: perfectly replicate server simulation logic, to be able to simulate and perfectly predict the bots  
-TODO parts of interest: overall tick structure, threat common logic (e.g. rng, when to they move), threat types, and map loading  
-  
+To help replicate the server's logic, we can play a bunch of local games, while storing per-tick information of each game (by adding a `SAVE_JSONL_PATH`  utility option to our [application.py](https://github.com/JesseEmond/blitz-2025-registration/blob/2e6f363634f82a3e217d91827e0292cd93d24a6c/bot/application.py#L26)). Then, we can replay the game with a custom [replayer.py](https://github.com/JesseEmond/blitz-2025-registration/blob/main/bot/replayer.py) utility that runs one tick at a time, offline.
+
+This is super helpful to check assertions of whether we accurately simulate the game. We can start with verifying a subset of the game's state with a few assertions (e.g. counting the ticks right, player position accurate, ...), and gradually expand the assertions until we can fully predict everything from the reverse engineered code (in other words, if you simulation is wrong, we misinterpreted the reverse engineered code in some way).
+
+Now, I'm lying a bit, because I initially was running games with a local server each time and would wait to see an assertion break. But this quickly became slow & painful to debug failures. Switching to this standalone and deterministic bank of game replays allowed much faster iterations.
+
+I won't go into the details of the server and the exact same code because:
+1) We don't have access to the real code, we just have our reinterpretation of it;
+2) A lot of it is not necessarily worth calling out for the purposes of writing a bot.
+I will mostly provide pointers to the decompiled code for folks that might be interested, and will provide python-like pseudocode/highlights at times.
+
+Let's restate our objective: we want to perfectly replicate the server simulation logic, to be able to simulate and perfectly predict the threats when picking a move. Let's then focus on:
+- Overall structure of a tick;
+- Common logic to all threats;
+- Per-type threat logic;
+- Map loading.
 #### Per-Tick Structure  
 The server, on each tick, does the following:  
 ```js 
@@ -327,7 +341,7 @@ class Threat {
   
 Note that the above, if used for all RNG purposes, gives perfect per-threat determinism! This means that we don't have to guess or recover an initial seed to clone the game -- we already know it (`0`).
 
-TODO notes on randomness? Plot values & say could be explored? Effectively this: [https://stackoverflow.com/a/19303725](https://stackoverflow.com/a/19303725)  
+As a side note, it's worth being aware of the limits of a custom random number generation algorithm like this. This algorithm is described on [this stackoverflow post](https://stackoverflow.com/questions/521295/seeding-the-random-number-generator-in-javascript/19303725#19303725), where we can find that someone [plotted the bias](https://jsfiddle.net/bhrLT/17/) of this RNG towards 0.0 and 1.0. Also shouldn't the seed start at `1`, like in the example? (We'll revisit this later)
   
 ##### Possible Directions  
 A couple threats will consider "what are my possible directions" when making choices. The [decompiled code](https://github.com/JesseEmond/blitz-2025-registration/blob/a179249c7b6a6c618dab7975739a3f4ee013114f/disassembled_js/490a918d96484178d4b23d814405ac87/challenge/threats/threat.decomp.js#L123-L228) for it is a bit verbose, but the important bits are:
@@ -455,7 +469,7 @@ I highlight this for a couple of reasons:
 But also, recall that `randomNumber()` does `Math.sin(seed) * 10000`, and `sin(0)` is, well, `0`. So the first `randomNumber()` **will always be exactly 0**! We can see this by noticing that **all threats start the game looking `up`** (first element in the list):
 ![Image of the game where all cars are facing up](readme_media/first_direction_always_up.png)
 
-This might be deliberate and is really not a big deal -- even if it was seed `424242` they would all have the same orientation from generating the same first random number to index in an array of length 4 anyway, but I thought it was worth calling out the first-is-always-`0.000000...` to be aware of the implications of using a simpler/custom random number generator. :)
+This might be deliberate and is really not a big deal -- even if it was seed `424242` they would all have the same orientation from generating the same first random number to index in an array of length 4 anyway, but I thought it was worth calling out the first-is-always-`0.000000...` to be aware of the implications of using a custom random number generator. :)
 
 #### Threats Logic  
 Now let's reimplement each threat, one at a time. The order I list them in matches the order I implemented them in, based on what looked easier to understand & clone from a glance at the decompiled JS.
@@ -551,7 +565,7 @@ def get_aggressive_path(game_map, from_pos, to_pos):
 	cost = {p: Infinity for p in all_empty_positions}
 	cost[from_pos] = 0
 	came_from = {}
-	unseen = game_map.all_empty_positions()
+	unseen = all_empty_positions
 	while unseen:
 		unseen.sort(function(a, b) { cost[b] - cost[a]})
 		pos = unseen.pop()
@@ -865,67 +879,325 @@ If you squint, you can kind of see that it's this one:
 ![Image of the game, showing the same road layouts as the previous layout image](readme_media/map_layout_real.png)
 
 When we receive tick 0, we can check all the maps we know about and find out which one it is (& verify that we _do_ indeed know about all the maps shown to us on the server).
-  
-## TODO Cloning + Search + Jump Over  
+## Let's Plan Ahead
+So we can copy the server now, yay! ... What now?
+### "It's free ~~real estate~~ search space"
+Recall that we start from a simple bot that does a search for possible moves by treating moves by threats as a fork in the search graph:
+![same search graph visualization from earlier, where the first layer is a root node with two options, the second layer are nodes with options for enemy 1, the next layer are nodes with options for enemy 2, the next layer are options for the player once more, and an implied continuity](readme_media/search_graph_example.png)
+It's as if the game was made up of "turns", like: player, enemy 1, enemy 2, ... I started with this, with a search depth of 10 "turns" ahead.
 
-TODO: add subsections
+But for threats that we know how to predict, we can skip the work of looking at all their possible moves and just pick the move we _know_ it will take. This is akin to getting a search depth "for free" when we encounter this threat type (well, not free, at a compute cost of simulating it). It's kind of like we can prune the other branches.
 
-TODO: reword & move to simple bot
-We can start our proper bot by ignoring all our hard work from above and do a minimax-like search with a heuristic eval of "threats are as far as possible". I started with this, with a depth of 10 -- where a "turn" here means either simulating a player movement or an enemy move (pretend that the game turns are: player, enemy 1, enemy 2, enemy 3, enemy 4, player, enemy 1, ...)
+Suppose in the image above that we have changed our bot to simulate "Enemy 2". It's as if we can prune its non-taken branches "for free":
+![similar search graph visualization as above, where the first layer is a root node with two options, the second layer are nodes with options for enemy 1, the next layer are nodes with options for enemy 2, but this time a single option is available for each node of enemy 2, with the other options faded out](readme_media/search_graph_example_pruned.png)
+It's almost as if that depth doesn't exist anymore (it's a "passthrough", really, except from the need to simulate it). So we can actually just do that -- when doing a search, don't treat this as a depth in our search graph (and don't count towards our search depth budget of 10 turns).
 
-But for threats that we know how to predict, we can skip the work of looking at all their possible moves and just pick the move we _know_ it will take. This is akin to getting a search depth "for free" when we encounter this threat type (well, not free, at a compute cost of simulating it). Note that as we simulate more and more threat types, this extra compute cost becomes noticeable and we must reduce our search depth to keep it reasonable. We gradually end up with a shallower search to stay in the time budget, but we fully know what will happen when we explore a possibility (& are still looking at more of _our_ moves ahead -- less "turns" spent on enemies).
-
+Note that as we simulate more and more threat types, this extra compute cost becomes noticeable and we must reduce our search depth to keep it reasonable. We gradually end up with a "shallower" search to stay in the time budget, but we fully know what will happen when we explore a possibility (& are still looking at more of _our_ moves ahead -- less "turns" spent on enemies). Once we can fully simulate all enemies, we end up with a search on _only_ our moves.
+### Going faster to search deeper
 This also means that optimizing our simulation can really pay off -- we unblock budget to do a deeper search of more moves ahead.
 
-Here are some of the optimizations I implemented (measuring them using [benchmarks](https://github.com/bheisler/criterion.rs) and finding optimization opportunities with [profiling](https://nnethercote.github.io/perf-book/profiling.html)), with relative speedups applied incrementally based on the previous item:
-- _get_aggressive_path_ **60% relative speedup**: Instead of working with a 2D grid & positions, assign empty tiles a unique ID (quick lookup index in a 2D grid) and treat it as a smaller 1D array. Use this representation to easily replace `HashMap` for pathfinding `cost` and `came_from` as vectors [`c40df79`](https://github.com/JesseEmond/blitz-2025-registration/commit/c40df79659b0e837d5bbbf2e2b5e8ea0f48424c7);
-- _get_aggressive_path_ **96% relative speedup**: Avoid sorting the entire frontier on each loop iteration, but while preserving the behavior of the JS implementation that sorts each time [`2710622`](https://github.com/JesseEmond/blitz-2025-registration/commit/27106223aae66a9a31c3afe42de1de9efa4d3724) -- will detail below;
-- _get_aggressive_path_ **93% relative speedup** (when player is near): Early exit pathfinding when the target is found, relevant in real play when we're getting chased and the Shark gets closer and closer [`0d6de5f`](https://github.com/JesseEmond/blitz-2025-registration/commit/0d6de5f9049854b39488dfc745a66ec3a4db66ca)
-- _get_aggressive_path_ **50% speedup**: after refactor that creates a common interface for slow & fast pathfinding implementation, to unit test correctness of optimization ([`16ca111`](https://github.com/JesseEmond/blitz-2025-registration/commit/16ca1119677ebf5a3b3828f307385fb88a72975b)), speedup suspected due to removing `next_frontier` deque and just using the one frontier with simpler buffers ([`2af1797`](https://github.com/JesseEmond/blitz-2025-registration/commit/2af1797f9ae3b629776ac365fc3f454b6d017ea8)) -- will detail below;
+Here I'll describe some of the optimizations I implemented (measuring them using [benchmarks](https://github.com/bheisler/criterion.rs) and finding optimization opportunities with [profiling](https://nnethercote.github.io/perf-book/profiling.html)), with relative speedups applied incrementally based on the previous item.
+
+On some games the bot worked well, but as soon as there was a shark involved ("aggressive"), our bot would slow down to a crawl. So this is the one that required the most iterations on optimizations.
+
+**`get_aggressive_path` optimizations**
+- **60% relative speedup**: Instead of working with a 2D grid & positions, assign empty tiles a unique ID (quick lookup index in a 2D grid) and treat it as a smaller 1D array. Use this representation to easily replace `HashMap` for pathfinding `cost` and `came_from` as vectors [`c40df79`](https://github.com/JesseEmond/blitz-2025-registration/commit/c40df79659b0e837d5bbbf2e2b5e8ea0f48424c7);
+- **96% relative speedup**: Avoid sorting the entire frontier on each loop iteration, but while preserving the behavior of the JS implementation that sorts each time [`2710622`](https://github.com/JesseEmond/blitz-2025-registration/commit/27106223aae66a9a31c3afe42de1de9efa4d3724) -- will detail below;
+- (when player is near) **93% relative speedup**: Early exit pathfinding when the target is found, relevant in real play when we're getting chased and the Shark gets closer and closer [`0d6de5f`](https://github.com/JesseEmond/blitz-2025-registration/commit/0d6de5f9049854b39488dfc745a66ec3a4db66ca)
+- **50% speedup**: after refactor that creates a common interface for slow & fast pathfinding implementation, to unit test correctness of optimization ([`16ca111`](https://github.com/JesseEmond/blitz-2025-registration/commit/16ca1119677ebf5a3b3828f307385fb88a72975b)), speedup suspected due to removing `next_frontier` deque and just using the one frontier with simpler buffers ([`2af1797`](https://github.com/JesseEmond/blitz-2025-registration/commit/2af1797f9ae3b629776ac365fc3f454b6d017ea8)) -- will detail below;
 - Precompute neighbors of each tiles on the first tick [`239c202`](https://github.com/JesseEmond/blitz-2025-registration/commit/239c202d6247371b42c3f6c96db8d22b3992426a);
-- Precompute paths for all possible empty tile pairs [`4563896`](https://github.com/JesseEmond/blitz-2025-registration/commit/4563896952d6a4ad90f529803a7edd881a854591);
+- Precompute paths for all possible empty tile pairs [`4563896`](https://github.com/JesseEmond/blitz-2025-registration/commit/4563896952d6a4ad90f529803a7edd881a854591) -- use _aggressive_ pathfinding logic;
+- Lookup precomputed paths [`ac7fddf`](https://github.com/JesseEmond/blitz-2025-registration/commit/ac7fddfb93a32774cd04728c55274aecb5e91aac);
+- Lookup pathfinding moves [`627a99f`](https://github.com/JesseEmond/blitz-2025-registration/commit/627a99f8e81a80dc4a8dcc53a9f362809756ad60).
 
-TODO get aggressive path remove sort trick
+Something I did mid-way, but wish I did from the get go was implement the optimized and the slower (the one matching the server's) using a shared interface. This allows verifying that optimizations are correct at every step of the pathfinding process (e.g. nodes are explored in the same order in the pathfinding search) in a unit test.
 
-TODO tested and ... jump over!? + show video, would not have noticed without the search, wow, sure enough the server only checks for death at XYZ  
+Recall that the *aggressive* pathfinding looks like this (rewritten in terms of "empty tile index" instead of positions):
+```python
+def get_aggressive_path(game_map, from_tile, to_tile):
+	all_empty_tiles = []
+	for x in range(game_map.width):
+		for y in range(game_map.height):
+			if game_map.is_empty(Pos(x, y)):
+				all_empty_tiles.append(game_map.get_tile_index(Pos(x, y)))
+	cost = {p: Infinity for p in all_empty_tiles}
+	cost[from_tile] = 0
+	came_from = {}
+	unseen = all_empty_tiles
+	while unseen:
+		unseen.sort(function(a, b) { cost[b] - cost[a]})
+		node = unseen.pop()
+		prev_cost = cost[node]
+		new_cost = prev_cost + 1
+		# Neighbors order: left, right, up, down
+		for neighbor in game_map.get_neighbors(node):
+			if new_cost >= cost[neighbor]:
+				continue
+			cost[neighbor] = new_cost
+			came_from[neighbor] = node
+	path = []
+	current = to_tile
+	while current != from_tile:
+		path.insert(0, current)
+		current = came_from[current]
+```
 
-TODO won 10k pts!  
-  
-TODO highlight + free bird
-TODO fast vid  
-TODO slow vid  
-  
-## TODO Winning, but fully  
-TODO .. but that's one map, testing locally, bot doesn't get this on all maps... :( we want a fully winning bot -- 10k on all possible maps.  
-  
-### TODO Markov Search Grammar + Search  
-TODO switched to MCTS, but recalled a lot of tuning last year & wanted to have some fun implementing [https://arxiv.org/pdf/1208.4692](https://arxiv.org/pdf/1208.4692)  
-TODO grammar over Markov Search algorithms, TODO each component  
-TODO with those, can define algo X, algo Y, algo Z, MCTS  
-TODO design of classes based on other rust lib TODO  
-TODO started with random sampling, that gave decent results, then started implementing other components and trying to beat it, but was hard to tell if my MCTS version (todo better because xyz, but less samples than random sampling) was better  
-  
-### TODO Iterate & Measure  
-TODO how to compare two bots' performance?  
-TODO A/B testing tangent  
-TODO stats class reminder, sign test, p-value, per-map & overall  
-TODO battle mode locally  
-TODO sampling better than iterative sampling  
-TODO parallelism in battles  
-TODO intuitively, mcts really should do better for this game...  
-  
-### The Last 20% (80% of my time)  
-TODO important fixes to my impl of paper, speedup of search (precompute moves, precompute all pathfinding pairs, scale rewards to 0-1, greedy policy, "not dead" heuristic that does a fake game over check that server wouldn't do)  
-TODO finally a win (todo commit picture) [https://github.com/JesseEmond/blitz-2025-registration/commit/3b2ac8b70c29377a67e59d9876dcadda5fbd0aee](https://github.com/JesseEmond/blitz-2025-registration/commit/3b2ac8b70c29377a67e59d9876dcadda5fbd0aee)  
-TODO picture with all maps 10k  
-  
-## TODO Winning, but Without Jumps  
-TODO looking at games, I saw a lot of "jumping over" enemies, which felt a bit cheap -- was worried that this is a feature that many might not discover without reversing the code, so wanted to also make sure that our bot could win if that move was not possible, since it's harder if we can't jump over enemies when we're in a bad spot  
-TODO fun part with replicating the server -- we can change its logic! For that, added mode to be able to run with `--allow_jump_over=false`, and our bot is still able to get 10K everywhere!  
-TODO example video?  
-  
-## TODO Conclusion  
-TODO
+We can pull a more general interface for this:
+```python
+import math
+
+Cost = float
+Node = int
+Path = list[Node]
+
+@dataclass
+def PathfinderState:
+	"""State of pathfinding from a given start point."""
+	# cost[node_idx], shortest distance from 'start' to a node.
+	cost: list[Cost]
+	# came_from[node_idx], parent node on a shortest path to a node.
+	came_from: list[Node | None]
+	# target position, if applicable, for optional early stopping.
+	target: Node | None
+
+	def get_path(self, to: Node) -> Path:
+		"""Get path for going to 'to', from our start position."""
+		# Note: 'start' will not be included in the path.
+		current = to
+		path = []
+		while True:
+			parent = self.came_from[current]
+			if parent is not None:
+				path.append(current)
+				current = parent
+			else:
+				break
+		path.reverse()
+		return path
+
+class Pathfinder:
+	def next_node(self, state: PathfinderState) -> Node | None:
+		"""Next node to explore in our search, if we should continue."""
+
+	def queue(self, state: PathfinderState, node: Node, cost: Cost) -> None:
+		"""Queue up a future node to visit."""
+
+	def commit(self) -> None:
+		"""Called when we are done visiting a node.
+
+		No other calls to 'queue' will be made for the current node."""
+
+	def pathfind(self, grid, from_tile: Node, to_tile: Node) -> PathfinderState:
+		state = PathfinderState(
+			cost=[math.inf for _ in range(grid.empty_tiles())],
+			came_from=[None for _ in range(grid.empty_tiles())],
+			target=to_tile)
+		self.queue(state, from_tile, cost=0)
+		self.commit()
+		while True:
+			current = self.next_node(state)
+			if current is None:
+				break
+			current_cost = state.cost[current]
+			for next_node in grid.get_neighbors(current):
+				prev_cost = state.cost[next_node]
+				new_cost = current_cost + 1
+				if new_cost < prev_cost:
+					state.cost[next_node] = new_cost
+					state.came_from[next_node] = current
+					self.queue(state, next_node, new_cost)
+			self.commit()
+		return state
+```
+
+We can then implement the slower server-like version like this:
+```python
+class ServerLikeAggressivePathfinder(Pathfinder):
+	def __init__(self, grid):
+		self.unseen = list(range(grid.empty_tiles()))
+
+	def next_node(self, state: PathfinderState) -> Node | None:
+		self.unseen.sort(key=lambda n: state.cost[n], reverse=True)
+		self.unseen.pop() if self.unseen else None
+
+	def queue(self, state: PathfinderState, node: Node, cost: Cost) -> None:
+		pass  # Nothing to do -- next node is recomputed every time!
+
+	def commit(self) -> None:
+		pass  # Nothing to do
+```
+
+This sort every `next_node` is expensive. Instead, we can create an optimized version. We can verify its correctness by ensuring, in a unit test, that the server-like version and the optimized version return `next_node`s in the same order.
+
+To optimize the sort above, we need to keep the following in mind:
+- Sort in modern JS is stable;
+- Sort is called at the start of the loop, so any newly same-cost added nodes queued in the same loop will keep their relative order from `empty_tiles` instead of being in the order seen;
+- When performing pathfinding on a grid with uniform costs like this, we can simplify the representation and just keep track of the current frontier (all of the same cost), with a "next frontier" for nodes with frontier cost + 1.
+```python
+class OptimizedAggressivePathfinder(Pathfinder):
+	def __init__(self, grid):
+		self.frontier = []  # In Rust, this is a VecDeque
+		self.frontier_cost = 0
+		# See 'commit' for why we need to buffer our 'queue's before adding them.
+		self.frontier_buffer = []
+		self.next_frontier_buffer = []
+
+	def next_node(self, state: PathfinderState) -> Node | None:
+		if not self.frontier: return None
+		node = self.frontier.pop()
+		if node == state.target:  # Optimization: early exit
+			return None
+		if state.cost[node] > self.frontier_cost:
+			self.frontier_cost += 1
+			# Nodes we find to add to our frontier will now be 'frontier_cost' or
+			# 'frontier_cost + 1'
+		return node
+
+	def queue(self, state, node: Node, cost: Cost) -> None:
+		if cost == self.frontier_cost:
+			 self.frontier_buffer.append(node)
+		else:
+			assert cost == self.frontier_cost + 1
+			self.next_frontier_buffer.append(node)
+
+	def commit(self) -> None:
+		# Because the JS code only sorts on new 'while' iterations, multiple
+		# positions discovered on the same iteration will keep their same
+		# initial ordering in the 'unseen' array, which comes from the
+		# 'empty_tiles' creation order (their index). We can sort by node index
+		# to replicate this.
+		self.frontier_buffer.sort()
+		self.next_frontier_buffer.sort()
+		# New additions move to the front. When the JS version sorts, all the
+		# previously unseen positions are to the left of seen ones (from prev
+		# Infinity cost value), and will preserve this relative order to existing
+		# frontier items (from a stable sort).
+		for n in reversed(self.frontier_buffer):
+			self.frontier.insert(0, n)  # (imagine a VecDeque push_front)
+		for n in reversed(self.next_frontier_buffer):
+			self.frontier.insert(0, n)  # (imagine a VecDeque push_front)
+		self.frontier_buffer.clear()
+		self.next_frontier_buffer.clear()
+```
+
+You can find the Rust implementation [here](https://github.com/JesseEmond/blitz-2025-registration/blob/main/bot/src/pathfinding.rs).
+
+With all of the above optimizations, I was able to run with a search depth of 8 (recall that this is a search 8 of _our moves_, so a net improvement over our previous 10 that also considered enemy moves!)
+
+More importantly, with all this we're now able to run our search using perfectly predicted threats within the time budget!
+### *You can do what!?*
+And with locally testing this full-prediction bot came a great revelation: **you can jump over enemies!**
+
+This is a very funny way to discover this capability (thanks... bot?), and not something I would have noticed. Sure enough, if you recall from earlier, we saw that the server does:
+- Check for game over;
+- Apply player action;
+- Update threats.
+
+If we move on the same tick that a threat next to us is moving, we'll move past each other without the server detecting it. Fun!
+
+Without perfectly replicating the server, this is a risky move to try, but our bot is not afraid. It just _knows_ it can do it.
+
+Let's run it on the server!
+### 10,005 points (It's Over 9000!)
+I kicked off a game. Our best score so far had been 1,280 points (256 ticks).
+
+Bam, 5,550 points (1110 ticks)! Nice!
+
+I kicked off another game and, lo and behold, **10,005 points**! That's the full 2000 ticks of survival, the max possible score for this challenge, just like that! Looks like our reversing wasn't all for nothing.
+
+ Please queue [this guitar solo](https://youtu.be/0LwcvjNJTuM?si=858NQoxWb_We6gt8&t=288) as you watch this highlight moment of the game:
+
+TODO CLIP HERE
+
+The full game looks like this:
+
+TODO CLIP HERE
+## Let's Win, But Fully
+... but this is on one map. Wouldn't we want a full win? The max possible score on all possible maps?
+### Markov Search Grammar & Search
+We'll need a better search. A "minimax" search (really a breadth first search now without our enemy modeling) of a fixed depth isn't cutting it.
+
+I switched the search to a Monte Carlo Tree Search ([MCTS](https://en.wikipedia.org/wiki/Monte_Carlo_tree_search)), which will allow us to sample possible future fates for out bot in different branches of our search tree.
+
+I recalled spending a good amount of time [tweaking MCTS](https://en.wikipedia.org/wiki/Monte_Carlo_tree_search) last year, so I wanted to go shopping for a fun spin on it this time. In that process I found this interesting paper: [Monte Carlo Search Algorithm Discovery for One Player Games](https://arxiv.org/pdf/1208.4692).
+
+The idea is quite fun: define a "grammar" over Markov Search algorithms, with the following components in the grammar:
+- _Simulate_: apply an action policy repeatedly from a given state until the end of the game;
+- _Repeat_: repeat a given subcomponent a fixed amount of times;
+- _LookAhead_: for each legal move from our state, run a subcomponent starting from the successor state;
+- _Step_: run step-by-step a given state, picking the next best action found by a subcomponent until the game ends;
+- _Select_: (main component of a MCTS) maintain a game tree with nodes that have statistics on subcomponent outcomes. It: selects the next node to explore, calls a subcomponent from there, then backpropagates statistics.
+
+With the above grammar, we can describe a couple of known algorithms:
+- _random sampling_ (sample random paths over & over): `rs = simulate(random_policy)`;
+- _iterative sampling_ (sample random paths, pick next move, repeat): `is = step(repeat(N, simulate(random_policy)))`;
+- _mcts_: `mcts(selection_policy, simulation_policy, N) = step(repeat(N, select(selection_policy, simulate(simulation_policy))))`;
+
+The idea is that we can then perform a search over this grammar (paired with hyperparameter search from possible policies like greedy or random and parameters like `N`) to find a search tailored to our problem, or even find a new Markov Search based algorithm that's more appropriate.
+
+I'm skipping a lot of details, but the paper is worth a closer read if you're interested.
+
+I started by setting up the interfaces and just using random sampling for now. This gave decent results. Then, I started implementing other components in the paper and trying to beat random sampling, but it was hard to tell if my MCTS version was really better (spending some compute time picking which action we should explore next, thus spending less time collecting samples than random sampling, but hopefully more promising ones).
+### Iterate & Measure  
+How do we compare two bots?
+
+This took me on a tangent trying to remember my stats classes, and starting to read on how A/B testing metrics get computed to measure statistical significance of metrics between treatment and control groups in large company settings from [this blog](https://bytepawn.com/tag/ab-testing.html) which I'd recommend checking out (special mention to [this one](https://bytepawn.com/ab-tests-moving-fast-vs-being-sure.html#ab-tests-moving-fast-vs-being-sure), which brings the idea of accepting the risk of more false-positives (higher p-value threshold) in a fast startup context).
+
+But let's get back to business. We are reminded of our stats class, p-values, and that we might want a [sign test](https://en.wikipedia.org/wiki/Sign_test) of wins/ties/losses between two bots. I added that through a "battle" mode to our local Rust game simulator, with per-map and overall statistics. Add some parallelism to that to run many games in parallel and collect a bunch of samples to get statistically significant results.
+
+This helped show that random sampling was definitely better than MCTS. That's odd. Intuitively, a "smarter" search like MCTS should really do better for this game (a bit more lookahead to avoid getting stuck somewhere), instead of just rolling the dice a couple more times per tick.
+### Tuning MCTS anyway
+This took up a good amount of time, but a bunch of fixes were needed to get this working:
+- Important fixes to my implementation of the paper's search components (in particular around the unspecified details of how `invoke` exactly deals with the best-so-far sequence, and how search components use it);
+- Search speedups (precompute all pathfinding pairs, precompute moves for pathfinding pairs);
+- Scale MCTS rewards to 0-1 (using historical lowest/highest);
+- Use greedy policy instead of random rollouts;
+- Use "is not dead" heuristic (duh!), but notably doing an early "is it game over on the next tick" that the server would not normally do;
+- Remember "best sequence seen so far" across ticks, so that the search does not start from scratch each time.
+
+With all this, I was finally able to get a win of MCTS over sampling search! Here's the output from our battle tool, from [`3b2ac8b`](https://github.com/JesseEmond/blitz-2025-registration/commit/3b2ac8b70c29377a67e59d9876dcadda5fbd0aee) on all maps:
+```
+[challenge1]:
+0 Sampling wins, 6 ties, 19 Uct100RolloutsSqrt2CGreedyNotDead wins
+Uct100RolloutsSqrt2CGreedyNotDead better than Sampling (p-value=0.000) 
+
+[challenge2]:
+0 Sampling wins, 25 ties, 0 Uct100RolloutsSqrt2CGreedyNotDead wins
+not significant (p-value=1.000)
+
+[challenge3]:
+0 Sampling wins, 21 ties, 4 Uct100RolloutsSqrt2CGreedyNotDead wins
+not significant (p-value=0.125)
+
+[challenge4]:
+0 Sampling wins, 21 ties, 4 Uct100RolloutsSqrt2CGreedyNotDead wins
+not significant (p-value=0.125)
+
+[challenge5]:
+0 Sampling wins, 12 ties, 13 Uct100RolloutsSqrt2CGreedyNotDead wins
+Uct100RolloutsSqrt2CGreedyNotDead better than Sampling (p-value=0.000)
+
+[challenge6]: 0 Sampling wins, 2 ties, 23 Uct100RolloutsSqrt2CGreedyNotDead wins
+Uct100RolloutsSqrt2CGreedyNotDead better than Sampling (p-value=0.000)
+
+[OVERALL]
+Sampling: 0 wins, ties: 87, Uct100RolloutsSqrt2CGreedyNotDead: 63 wins
+Uct100RolloutsSqrt2CGreedyNotDead better than Sampling (p-value=0.000)
+```
+
+To get a properly clean win on server as well, here's a picture where we reran until we got all possible maps, all with 10k points:
+
+![screenshot of the coveo blitz UI, with timestamped runs of the v11 bot version, all showing 10005.00 score, each row in the table is annotated with the number of the map for that game](readme_media/all_maps_10k.png)
+### What if you couldn't jump?
+Looking at the games above, I saw a lot of "jumping over" enemies, which felt a bit cheap -- I was worried that this is a feature that many might not be discovered without reversing the code.
+
+So I wanted to also make sure that our bot could win if that move was not possible, since it's harder if we can't jump over enemies when we're in a bad spot. The fun part of cloning the server logic and reimplementing it is that this is easy to test -- we just need to change our simulation logic to disallow it! We can do that by checking for game over right after the player moves (before threats move).
+
+And, thankfully, our bot is still able to get 10K points everywhere.
+## Hot Wheels Pacman ✅
+What a fun challenge once again from Coveo, thank you for letting us participate and have some fun with it!
+
+If you participated, I would love to hear how you approached the problem!
 
 # Dev Instructions
 
