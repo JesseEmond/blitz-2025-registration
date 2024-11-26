@@ -1203,7 +1203,7 @@ To get a properly clean win on server, here's a picture where we reran until we 
 
 In the end, I never ended up implementing the search part of the Monte Carlo Search Discovery paper (the main contribution of the paper!) since things worked out without needing it, but I'm keeping that one in mind in the future. 
 ### What if you couldn't jump?
-Looking at the games above, I saw a lot of "jumping over" enemies, which felt a bit cheap -- I was worried that this is a feature that many might not be discovered without reversing the code.
+Looking at the games above, I saw a lot of "jumping over" enemies, which felt a bit cheap -- I was worried that this is a feature that many might not have discovered without reversing the code.
 
 So I wanted to also make sure that our bot could win if that move was not possible, since it's harder if we can't jump over enemies when we're in a bad spot. The useful part of cloning the server logic and reimplementing it is that this is easy to test -- we just need to change our simulation logic to disallow it! We can do that by checking for game over right after the player moves (before threats move).
 
