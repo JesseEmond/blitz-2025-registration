@@ -1123,7 +1123,7 @@ We'll need a better search. A "minimax" search (really a breadth first search no
 
 I switched the search to a Monte Carlo Tree Search ([MCTS](https://en.wikipedia.org/wiki/Monte_Carlo_tree_search)), which will allow us to sample possible future fates for out bot in different branches of our search tree.
 
-I recalled spending a good amount of time [tweaking MCTS](https://en.wikipedia.org/wiki/Monte_Carlo_tree_search) last year, so I wanted to go shopping for a fun spin on it this time. In that process I found this interesting paper: [Monte Carlo Search Algorithm Discovery for One Player Games](https://arxiv.org/pdf/1208.4692).
+I recalled spending a good amount of time [tweaking MCTS](https://github.com/JesseEmond/blitz-2024-registration/tree/main?tab=readme-ov-file#mcts-tweaks) last year, so I wanted to go shopping for a fun spin on it this time. In that process I found this interesting paper: [Monte Carlo Search Algorithm Discovery for One Player Games](https://arxiv.org/pdf/1208.4692).
 
 The idea is quite fun: define a "grammar" over Monte Carlo Search algorithms, with the following components in the grammar:
 - _Simulate_: apply an action policy repeatedly from a given state until the end of the game;
@@ -1136,30 +1136,31 @@ With the above grammar, we can describe a couple of known algorithms:
 - _random sampling_ (sample random paths over & over): `rs = simulate(random_policy)`;
 - _iterative sampling_ (sample random paths, pick next move, repeat): `is = step(repeat(N, simulate(random_policy)))`;
 - _mcts_: `mcts(selection_policy, simulation_policy, N) = step(repeat(N, select(selection_policy, simulate(simulation_policy))))`;
+- (... many MCTS variants, see the paper for more)
 
 The idea is that we can then perform a search over this grammar (paired with hyperparameter search from possible policies like greedy or random and parameters like `N`) to find a search tailored to our problem, or even find a new Monte Carlo Search based algorithm that's more appropriate.
 
 I'm skipping a lot of details, but the paper is worth a closer read if you're interested.
 
-I started by setting up the interfaces and just using random sampling for now. This gave decent results. Then, I started implementing other components in the paper and trying to beat random sampling, but it was hard to tell if my MCTS version was really better (spending some compute time picking which action we should explore next, thus spending less time collecting samples than random sampling, but hopefully more promising ones).
+I started by setting up the interfaces and just using random sampling for now. This gave decent results. Then, I started implementing other components in the paper, trying to beat random sampling, but it was hard to tell if my MCTS version was really better (which I intuitively expected it to be -- spending some compute time picking which action we should explore next, thus spending less time collecting samples than random sampling, but hopefully more promising ones).
 ### Iterate & Measure  
 How do we compare two bots?
 
-This took me on a tangent trying to remember my stats classes, and starting to read on how A/B testing metrics get computed to measure statistical significance of metrics between treatment and control groups in large company settings from [this blog](https://bytepawn.com/tag/ab-testing.html) which I'd recommend checking out (special mention to [this one](https://bytepawn.com/ab-tests-moving-fast-vs-being-sure.html#ab-tests-moving-fast-vs-being-sure), which brings the idea of accepting the risk of more false-positives (higher p-value threshold) in a fast startup context).
+This took me on a tangent trying to remember my stats classes, and stumbling on this great series from [this blog](https://bytepawn.com/tag/ab-testing.html) on how A/B testing metrics get computed to measure statistical significance of metrics between treatment and control groups in software changes, which I'd recommend checking out. Special mention to [this one](https://bytepawn.com/ab-tests-moving-fast-vs-being-sure.html#ab-tests-moving-fast-vs-being-sure), which brings the idea of accepting the risk of more false-positives (higher p-value threshold) in a fast startup context.
 
 But let's get back to business. We are reminded of our stats class, p-values, and that we might want a [sign test](https://en.wikipedia.org/wiki/Sign_test) of wins/ties/losses between two bots. I added that through a "battle" mode to our local Rust game simulator, with per-map and overall statistics. Add some parallelism to that to run many games in parallel and collect a bunch of samples to get statistically significant results.
 
 This helped show that random sampling was definitely better than MCTS. That's odd. Intuitively, a "smarter" search like MCTS should really do better for this game (a bit more lookahead to avoid getting stuck somewhere), instead of just rolling the dice a couple more times per tick.
 ### Tuning MCTS anyway
 This took up a good amount of time, but a bunch of fixes were needed to get this working:
-- Important fixes to my implementation of the paper's search components (in particular around the unspecified details of how `invoke` exactly deals with the best-so-far sequence, and how search components use it);
+- Many fixes to my implementation of the paper's search components (in particular around the unspecified details of how `invoke` exactly deals with the best-so-far sequence, and how search components use it);
 - Search speedups (precompute all pathfinding pairs, precompute moves for pathfinding pairs);
 - Scale MCTS rewards to 0-1 (using historical lowest/highest);
 - Use greedy policy instead of random rollouts;
-- Use "is not dead" heuristic (duh!), but notably doing an early "is it game over on the next tick" that the server would not normally do;
+- Use "is not dead" heuristic (duh!), but notably doing an early "is it game over on the next tick" that the server would not normally do right away;
 - Remember "best sequence seen so far" across ticks, so that the search does not start from scratch each time.
 
-With all this, I was finally able to get a win of MCTS over sampling search! Here's the output from our battle tool, from [`3b2ac8b`](https://github.com/JesseEmond/blitz-2025-registration/commit/3b2ac8b70c29377a67e59d9876dcadda5fbd0aee) on all maps:
+With all this, I was finally able to get a win of MCTS over sampling search! Here's the output from our battle tool, from [`3b2ac8b`](https://github.com/JesseEmond/blitz-2025-registration/commit/3b2ac8b70c29377a67e59d9876dcadda5fbd0aee) on all maps -- a clear victory:
 ```
 [challenge1]:
 0 Sampling wins, 6 ties, 19 Uct100RolloutsSqrt2CGreedyNotDead wins
@@ -1189,19 +1190,21 @@ Sampling: 0 wins, ties: 87, Uct100RolloutsSqrt2CGreedyNotDead: 63 wins
 Uct100RolloutsSqrt2CGreedyNotDead better than Sampling (p-value=0.000)
 ```
 
-To get a properly clean win on server as well, here's a picture where we reran until we got all possible maps, all with 10k points:
+Not only that, but it was now getting 10,005 points on all maps as well!
+
+To get a properly clean win on server, here's a picture where we reran until we got all possible maps, all with 10k points:
 
 ![screenshot of the coveo blitz UI, with timestamped runs of the v11 bot version, all showing 10005.00 score, each row in the table is annotated with the number of the map for that game](readme_media/all_maps_10k.png)
 
-Funnily enough, I never ended up implementing the search part of the Monte Carlo Search Discovery paper (the main contribution of the paper!) since things worked out of the box, but I'm keeping that one in mind in the future. 
+In the end, I never ended up implementing the search part of the Monte Carlo Search Discovery paper (the main contribution of the paper!) since things worked out without needing it, but I'm keeping that one in mind in the future. 
 ### What if you couldn't jump?
 Looking at the games above, I saw a lot of "jumping over" enemies, which felt a bit cheap -- I was worried that this is a feature that many might not be discovered without reversing the code.
 
-So I wanted to also make sure that our bot could win if that move was not possible, since it's harder if we can't jump over enemies when we're in a bad spot. The fun part of cloning the server logic and reimplementing it is that this is easy to test -- we just need to change our simulation logic to disallow it! We can do that by checking for game over right after the player moves (before threats move).
+So I wanted to also make sure that our bot could win if that move was not possible, since it's harder if we can't jump over enemies when we're in a bad spot. The useful part of cloning the server logic and reimplementing it is that this is easy to test -- we just need to change our simulation logic to disallow it! We can do that by checking for game over right after the player moves (before threats move).
 
-And, thankfully, our bot is still able to get 10K points everywhere.
+And, thankfully, our bot is still able to get 10K points everywhere with that restriction.
 ## Hot Wheels Pacman ✅
-What a fun challenge once again from Coveo, thank you for letting us participate and have some fun with it!
+Again, a very entertaining challenge from Coveo, thank you for letting us participate and have some fun with it!
 
 If you participated, I would love to hear how you approached the problem!
 
