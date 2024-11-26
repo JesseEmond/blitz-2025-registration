@@ -12,10 +12,12 @@ That makes it all worth it, right?
 We're essentially roleplaying this movie, but with cars:
 
 ![poster for the movie Catch me if you can with Leonardo DiCaprio and Tom Hanks](readme_media/catch_me_if_you_can.png)
+
 _We get to be Leonardo DiCaprio, while Coveo HR is Tom Hanks._
 
 But the game really looks like this:
 ![Example of a game, we see a 2D grid made up of streets and walls, with a red car in the center left, with dark cars positioned elsewhere on the roads](readme_media/game_example.png)
+
 Our car is the red one (objectively the fastest color), and we are told that Coveo HR is trying to catch us with all those other cars because we forgot to complete our timesheet last quarter, and we want to avoid them for as long as possible (... _what is happening in Coveo offices!?_).
 
 We're presented with a turn-based game.
@@ -52,6 +54,7 @@ In the game above, we survived for 256 ticks, worth **1,280 points**.
 ### Simple, but in Python  
 
 ![Python programming language logo made out of metal](readme_media/shiny_python.png)
+
 _Python, but shiny._
 
 We can kick off our Blitz journey with incremental improvements to a Python bot while we become more familiar with the challenge:
@@ -66,6 +69,7 @@ But surely we can do better?
 ### Simple, but in Rust  
 
 ![Python programming language logo made out of metal, but covered in rust](readme_media/rusty_python.png)
+
 _"Python"._
 
 First, why already rewrite in Rust? Couldn't we do a ton more to improve this bot?
@@ -86,6 +90,7 @@ Sometimes our bot will run into threats, even, because it assumes that regardles
 
 It's as if our bot thinks it's getting chased by this ungodly creature:
 ![generated image of a mutant animal that has antlers, body, and ears of a deer, the face of an owl, the tail of a goldfish, and the fin of a shark](readme_media/merged_animal.png)
+
 _All fear the Goldeerowl._
 
 Wouldn't it be great if we didn't have to model the enemies as seers that can counter our every moves, and instead really understood how a `shark` or a `goldfish` thinks?
