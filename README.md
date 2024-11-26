@@ -1107,11 +1107,12 @@ I kicked off another game and, lo and behold, **10,005 points**! That's the full
 
  Please queue [this guitar solo](https://youtu.be/0LwcvjNJTuM?si=858NQoxWb_We6gt8&t=288) as you watch this highlight moment of the game:
 
-TODO CLIP HERE
+https://github.com/user-attachments/assets/2b0f552e-c8c5-4b0e-bf25-ef03a8459e83
 
 The full game looks like this:
 
-TODO CLIP HERE
+https://github.com/user-attachments/assets/cb1b17f5-9273-45a0-a9e1-bc4ebcebaf4f
+
 ## Let's Win, But Fully
 ... but this is on one map. Wouldn't we want a full win? The max possible score on all possible maps?
 ### Markov Search Grammar & Search
