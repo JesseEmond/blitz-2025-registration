@@ -141,7 +141,7 @@ The trick is again this:
 - Here, our bidding involves using internal V8 functions to print disassembled code, right after loading it.
 - Then, we use that binary to read the challenge's unpackaged serialized JS files to recover V8 assembly.
 
-So, for a file like `ation_types.js` that defines the actions like go up, go down, etc., we'll get something like:
+So, for a file like `action_types.js` that defines the actions like go up, go down, etc., we'll get something like:
 ```
 === [0x2bb5c29a4db8] DISASSEMBLY ===
 Parameter count 1
